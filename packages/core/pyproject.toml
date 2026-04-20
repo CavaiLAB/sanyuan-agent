@@ -46,7 +46,7 @@ dev = [
 ]
 
 [project.scripts]
-neuroagent = "neuroagent.cli:main"
+neuroagent = "neuroagent.cli:app"
 
 [build-system]
 requires = ["hatchling"]

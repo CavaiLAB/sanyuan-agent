@@ -1,6 +1,7 @@
 """Standalone + boundary tests for NeuroAgent Harness."""
 
 import ast
+import subprocess
 from pathlib import Path
 
 from neuroagent.cli import app
@@ -13,6 +14,19 @@ def test_version_prints_version_and_exits_zero() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
     assert "0.1.0" in result.output
+
+
+def test_console_script_prints_version() -> None:
+    """Run the real console script via subprocess."""
+    result = subprocess.run(
+        ["neuroagent", "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "neuroagent" in result.stdout
+    assert "0.1.0" in result.stdout
 
 
 def test_no_imports_from_neuroagent_app() -> None:
