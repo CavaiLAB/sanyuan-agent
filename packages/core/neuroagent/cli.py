@@ -1,0 +1,30 @@
+"""NeuroAgent Harness CLI."""
+
+from pathlib import Path
+
+import typer
+
+from . import __version__
+
+app = typer.Typer(help="NeuroAgent Harness CLI")
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"neuroagent {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False, "--version", "-v", help="Show version", callback=_version_callback, is_eager=True
+    ),
+) -> None:
+    """NeuroAgent Harness — Agent engine CLI."""
+
+
+@app.command()
+def run(config: Path) -> None:
+    """Run agent from a config file (stub)."""
+    typer.echo(f"Config path: {config}")
