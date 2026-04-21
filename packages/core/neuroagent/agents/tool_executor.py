@@ -1,9 +1,16 @@
 """LangGraph tool-executor node backed by ToolRegistry."""
 
+import json
 from typing import Any, cast
 
 from langchain_core.messages import ToolMessage
 
+from neuroagent.agents.errors import (
+    ToolArgsValidationError,
+    ToolCircuitBreakerError,
+    ToolExecutionError,
+    ToolNotFoundError,
+)
 from neuroagent.tools.registry import ToolRegistry
 
 
@@ -21,6 +28,150 @@ def _last_assistant_tool_calls(state: dict[str, Any]) -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], tcs)
 
 
+def _sanitize_tool_call(tc: dict[str, Any]) -> dict[str, Any] | None:
+    """Clean a potentially malformed tool_call dict.
+
+    Returns *None* if the structure is too broken to recover.
+    """
+    fn = tc.get("function")
+    if not isinstance(fn, dict):
+        return None
+    name = fn.get("name", "")
+    if not isinstance(name, str):
+        name = str(name)
+    args = fn.get("arguments", "{}")
+    if not isinstance(args, str):
+        args = json.dumps(args) if args is not None else "{}"
+    tc_id = tc.get("id", "")
+    if not isinstance(tc_id, str):
+        tc_id = str(tc_id)
+    return {
+        "id": tc_id,
+        "type": tc.get("type", "function"),
+        "function": {"name": name.strip(), "arguments": args.strip() or "{}"},
+    }
+
+
+def _validate_args(
+    name: str,
+    args: dict[str, Any],
+    registry: ToolRegistry,
+) -> None:
+    """Validate arguments against the tool's JSON schema.
+
+    Raises *ToolArgsValidationError* on mismatch.
+    """
+    if not registry.has_tool(name):
+        raise ToolNotFoundError(name, registry.list_tools())
+
+    schema = registry.get_schema(name)
+    parameters = schema.get("parameters", {})
+    if not parameters:
+        return
+
+    from jsonschema import ValidationError, validate
+
+    try:
+        validate(instance=args, schema=parameters)
+    except ValidationError as exc:
+        errors = [str(exc.message)]
+        raise ToolArgsValidationError(name, errors) from exc
+
+
+async def _recover_tool_call(
+    tc: dict[str, Any],
+    registry: ToolRegistry,
+) -> ToolMessage:
+    """Validate, execute, and recover a single tool_call.
+
+    On *any* failure a ``ToolMessage`` is returned whose *content*
+    carries a structured error description so the LLM can self-correct.
+    """
+    tc_id = tc.get("id", "")
+    fn_info = tc.get("function", {})
+    name = fn_info.get("name", "")
+    args_raw = fn_info.get("arguments", "{}")
+
+    # 1. Sanitize / malformed guard
+    if not name:
+        return ToolMessage(
+            content="[tool-error] Missing tool name. Please provide a valid function name.",
+            tool_call_id=tc_id,
+            name="unknown",
+        )
+
+    # 2. Tool not found → list available tools
+    if not registry.has_tool(name):
+        available = registry.list_tools()
+        return ToolMessage(
+            content=(
+                f"[tool-error] Tool '{name}' not found. "
+                f"Available tools: {', '.join(available)}"
+            ),
+            tool_call_id=tc_id,
+            name=name,
+        )
+
+    # 3. Parse JSON arguments
+    try:
+        args = json.loads(args_raw)
+    except json.JSONDecodeError as exc:
+        schema = registry.get_schema(name)
+        params = schema.get("parameters", {})
+        props = params.get("properties", {})
+        expected = ", ".join(props.keys()) if props else "(none defined)"
+        return ToolMessage(
+            content=(
+                f"[tool-error] Invalid JSON in arguments for '{name}': {exc}. "
+                f"Expected parameters: {expected}"
+            ),
+            tool_call_id=tc_id,
+            name=name,
+        )
+
+    # 4. Schema validation
+    try:
+        _validate_args(name, args, registry)
+    except ToolArgsValidationError as exc:
+        return ToolMessage(
+            content=(
+                f"[tool-error] Argument validation failed for '{name}': "
+                f"{'; '.join(exc.errors)}. Please correct and retry."
+            ),
+            tool_call_id=tc_id,
+            name=name,
+        )
+
+    # 5. Execute with circuit-breaker / exception recovery
+    try:
+        result = await registry.execute(name, args_raw)
+    except ToolCircuitBreakerError as exc:
+        return ToolMessage(
+            content=(
+                f"[tool-error] Circuit breaker open for '{name}' "
+                f"({exc.fail_count}/{exc.threshold} consecutive failures). "
+                f"Please use an alternative tool or wait."
+            ),
+            tool_call_id=tc_id,
+            name=name,
+        )
+    except ToolExecutionError as exc:
+        return ToolMessage(
+            content=(
+                f"[tool-error] Execution failed for '{name}': {exc.original}\n"
+                f"Traceback:\n{exc.traceback_summary}"
+            ),
+            tool_call_id=tc_id,
+            name=name,
+        )
+
+    return ToolMessage(
+        content=str(result),
+        tool_call_id=tc_id,
+        name=name,
+    )
+
+
 async def tool_executor_node(
     state: dict[str, Any],
     config: dict[str, Any],
@@ -29,7 +180,7 @@ async def tool_executor_node(
 
     Reads the last message's ``tool_calls``, looks each up in the
     ``ToolRegistry`` passed via ``config["configurable"]["tool_registry"]``,
-    executes them in parallel (coroutines are gathered), and appends
+    executes them with recovery (_recover_tool_call), and appends
     ``ToolMessage`` instances to the conversation.
     """
     registry: ToolRegistry | None = config.get("configurable", {}).get(
@@ -44,16 +195,17 @@ async def tool_executor_node(
 
     tool_messages: list[ToolMessage] = []
     for tc in tcs:
-        fn_info = tc.get("function", {})
-        name = fn_info.get("name", "")
-        args = fn_info.get("arguments", "{}")
-        result = await registry.execute(name, args)
-        tool_messages.append(
-            ToolMessage(
-                content=str(result),
-                tool_call_id=tc.get("id", ""),
-                name=name,
+        sanitized = _sanitize_tool_call(tc)
+        if sanitized is None:
+            tool_messages.append(
+                ToolMessage(
+                    content="[tool-error] Malformed tool_call structure.",
+                    tool_call_id=tc.get("id", ""),
+                    name="unknown",
+                )
             )
-        )
+            continue
+        msg = await _recover_tool_call(sanitized, registry)
+        tool_messages.append(msg)
 
     return {"messages": tool_messages}

@@ -1,6 +1,7 @@
 """Tests for ToolRegistry and tool_executor_node."""
 
 import pytest
+from neuroagent.agents.errors import ToolExecutionError
 from neuroagent.agents.tool_executor import _last_assistant_tool_calls, tool_executor_node
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
@@ -66,8 +67,10 @@ class TestToolRegistry:
 
         reg = ToolRegistry()
         reg.register("boom", _boom, callable_to_schema(_boom))
-        result = await reg.execute("boom", "{}")
-        assert "Error: kapow" in result
+        with pytest.raises(ToolExecutionError) as exc_info:
+            await reg.execute("boom", "{}")
+        assert "kapow" in str(exc_info.value)
+        assert exc_info.value.traceback_summary
 
 
 class TestLastAssistantToolCalls:
