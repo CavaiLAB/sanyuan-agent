@@ -1,10 +1,11 @@
 """Bash tool builder — wraps ISandboxProvider.run_shell for agent use."""
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable
 
 from neuroagent.sandbox.abc import ISandboxProvider, SandboxSession
+from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,8 +23,13 @@ BashTool = Callable[[str, int], Awaitable[dict[str, str | int]]]
 def build_bash_tool(
     provider: ISandboxProvider,
     session: SandboxSession,
+    registry: ToolRegistry | None = None,
 ) -> BashTool:
-    """Return a bound bash tool for the given session."""
+    """Return a bound bash tool for the given session.
+
+    If *registry* is provided, the tool is registered under the name
+    ``"bash"`` with its OpenAI-style function schema.
+    """
 
     async def tool_bash(cmd: str, timeout: int = 60) -> dict[str, str | int]:
         result = await asyncio.wait_for(
@@ -35,5 +41,8 @@ def build_bash_tool(
             "stderr": result.stderr,
             "exit_code": result.exit_code,
         }
+
+    if registry is not None:
+        registry.register("bash", tool_bash, callable_to_schema(tool_bash))
 
     return tool_bash

@@ -1,9 +1,11 @@
 """File-operation tool builders — wraps ISandboxProvider file methods."""
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from neuroagent.sandbox.abc import ISandboxProvider, SandboxSession
+from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,8 +31,13 @@ class UploadFileResult:
 def build_file_ops_tools(
     provider: ISandboxProvider,
     session: SandboxSession,
+    registry: ToolRegistry | None = None,
 ) -> dict[str, Callable[..., Awaitable[Any]]]:
-    """Return a dict of bound file-operation tools for the given session."""
+    """Return a dict of bound file-operation tools for the given session.
+
+    If *registry* is provided, each tool is registered under its function
+    name with its OpenAI-style function schema.
+    """
 
     async def read_file(path: str) -> ReadFileResult:
         content = await provider.read_file(session.id, path)
@@ -48,9 +55,19 @@ def build_file_ops_tools(
         await provider.upload_file(session.id, local_path, remote_path)
         return UploadFileResult()
 
-    return {
+    tools: dict[str, Callable[..., Awaitable[Any]]] = {
         "read_file": read_file,
         "write_file": write_file,
         "list_dir": list_dir,
         "upload_file": upload_file,
     }
+
+    if registry is not None:
+        registry.register("read_file", read_file, callable_to_schema(read_file))
+        registry.register("write_file", write_file, callable_to_schema(write_file))
+        registry.register("list_dir", list_dir, callable_to_schema(list_dir))
+        registry.register(
+            "upload_file", upload_file, callable_to_schema(upload_file)
+        )
+
+    return tools

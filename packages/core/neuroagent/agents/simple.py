@@ -1,20 +1,22 @@
-"""Simplified 3-node LangGraph agent (plan → act → observe)."""
+"""Simplified LangGraph agent (plan → act → tool_executor → observe → plan)."""
 
 import inspect
-import json
 import os
-from typing import Annotated, Any, Callable
+from collections.abc import Callable
+from typing import Annotated, Any, cast
 
 from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
+from neuroagent.agents.tool_executor import tool_executor_node
 from neuroagent.models import LLMProvider
+from neuroagent.tools.registry import ToolRegistry
 
 
-def _to_tool_def(tool: Callable) -> dict:
+def _to_tool_def(tool: Callable[..., Any]) -> dict[str, Any]:
     """Convert a plain callable to an OpenAI-style tool definition."""
     sig = inspect.signature(tool)
-    props: dict[str, dict] = {}
+    props: dict[str, dict[str, str]] = {}
     required: list[str] = []
     for name, param in sig.parameters.items():
         ann = param.annotation
@@ -42,8 +44,8 @@ def _to_tool_def(tool: Callable) -> dict:
 
 async def _call_llm(
     provider: LLMProvider,
-    messages: list[dict],
-    tools: list[dict],
+    messages: list[dict[str, str]],
+    tools: list[dict[str, Any]],
 ) -> Any:
     """Unified async LLM call via LiteLLM."""
     kwargs: dict[str, Any] = {
@@ -69,7 +71,7 @@ def _get_content(response: Any) -> str:
         return ""
 
 
-def _get_tool_calls(response: Any) -> list[dict]:
+def _get_tool_calls(response: Any) -> list[dict[str, Any]]:
     try:
         tcs = response.choices[0].message.tool_calls
         if not tcs:
@@ -90,26 +92,33 @@ def _get_tool_calls(response: Any) -> list[dict]:
 
 
 class AgentState(TypedDict):
-    """Shared state across the 3-node graph."""
+    """Shared state across the agent graph."""
 
-    messages: Annotated[list[dict], list.__add__]
+    messages: Annotated[list[dict[str, Any]], list.__add__]
     next_action: str | None
-    tool_results: Annotated[list[dict], list.__add__]
+    tool_results: Annotated[list[dict[str, Any]], list.__add__]
+    iteration: int
+    max_iter: int
 
 
 def build_simple_agent(
     llm_provider: LLMProvider,
-    tools: list[Callable],
+    tools: list[Callable[..., Any]],
+    max_iter: int = 10,
 ) -> Any:
-    """Build and compile a 3-node plan/act/observe agent graph."""
-    tool_defs = [_to_tool_def(t) for t in tools]
-    tools_map = {t.__name__: t for t in tools}
+    """Build and compile a plan/act/tool_executor/observe agent graph."""
+    registry = ToolRegistry()
+    for t in tools:
+        schema = _to_tool_def(t)["function"]
+        registry.register(t.__name__, t, schema)
 
-    async def plan(state: AgentState):
-        response = await _call_llm(llm_provider, state["messages"], tool_defs)
+    async def plan(state: AgentState) -> dict[str, Any]:
+        response = await _call_llm(
+            llm_provider, state["messages"], registry.tool_defs()
+        )
         tcs = _get_tool_calls(response)
         if tcs:
-            msg = {
+            msg: dict[str, Any] = {
                 "role": "assistant",
                 "content": _get_content(response),
                 "tool_calls": tcs,
@@ -118,53 +127,54 @@ def build_simple_agent(
         msg = {"role": "assistant", "content": _get_content(response)}
         return {"next_action": "stop", "messages": [msg]}
 
-    async def act(state: AgentState):
-        if state["next_action"] != "tool_call":
-            return {}
-        last_msg = state["messages"][-1]
-        tcs = last_msg.get("tool_calls", [])
-        if not tcs:
-            return {}
-        results = []
-        for tc in tcs:
-            fn_info = tc["function"]
-            tool_fn = tools_map.get(fn_info["name"])
-            if tool_fn is None:
-                result = f"Tool '{fn_info['name']}' not found"
-            else:
-                try:
-                    args = json.loads(fn_info["arguments"])
-                    if inspect.iscoroutinefunction(tool_fn):
-                        result = await tool_fn(**args)
-                    else:
-                        result = tool_fn(**args)
-                except Exception as exc:
-                    result = f"Error: {exc}"
-            results.append({
-                "tool_call_id": tc["id"],
-                "role": "tool",
-                "content": str(result),
-                "name": fn_info["name"],
-            })
-        return {"tool_results": results}
+    async def act(state: AgentState) -> dict[str, Any]:
+        """Routing node — decides whether tool execution is needed."""
+        last_msg = state["messages"][-1] if state["messages"] else {}
+        has_tool_calls = (
+            last_msg.get("role") == "assistant" and last_msg.get("tool_calls")
+        )
+        return {"next_action": "tool_call" if has_tool_calls else "stop"}
 
-    async def observe(state: AgentState):
-        if state["next_action"] == "tool_call" and state["tool_results"]:
-            return {"messages": state["tool_results"]}
-        return {}
+    async def observe(state: AgentState) -> dict[str, Any]:
+        current_iter = state.get("iteration", 0)
+        # Backward-compat: inject legacy tool_results if present.
+        if state.get("tool_results"):
+            return {
+                "messages": state["tool_results"],
+                "iteration": current_iter + 1,
+            }
+        return {"iteration": current_iter + 1}
 
-    def should_continue(state: AgentState):
-        if state["next_action"] == "tool_call":
+    def route_after_act(state: AgentState) -> str:
+        last_msg = state["messages"][-1] if state["messages"] else {}
+        if last_msg.get("role") == "assistant" and last_msg.get("tool_calls"):
+            return "tool_executor"
+        return "observe"
+
+    def should_continue(state: AgentState) -> str:
+        limit = state.get("max_iter", max_iter)
+        if (
+            state["next_action"] == "tool_call"
+            and state.get("iteration", 0) < limit
+        ):
             return "plan"
         return END
+
+    async def tool_executor(state: AgentState) -> dict[str, Any]:
+        return await tool_executor_node(
+            cast(dict[str, Any], state),
+            {"configurable": {"tool_registry": registry}},
+        )
 
     builder = StateGraph(AgentState)
     builder.add_node("plan", plan)
     builder.add_node("act", act)
+    builder.add_node("tool_executor", tool_executor)
     builder.add_node("observe", observe)
     builder.set_entry_point("plan")
     builder.add_edge("plan", "act")
-    builder.add_edge("act", "observe")
+    builder.add_conditional_edges("act", route_after_act)
+    builder.add_edge("tool_executor", "observe")
     builder.add_conditional_edges("observe", should_continue)
 
     return builder.compile()
