@@ -9,8 +9,22 @@ from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
 from neuroagent.agents.tool_executor import tool_executor_node
+from neuroagent.memory.sensory import SensoryEvent
+from neuroagent.memory.working import WorkingMemory
 from neuroagent.models import LLMProvider
 from neuroagent.tools.registry import ToolRegistry
+
+
+class AgentState(TypedDict):
+    """Shared state across the agent graph."""
+
+    messages: Annotated[list[dict[str, Any]], list.__add__]
+    next_action: str | None
+    tool_results: Annotated[list[dict[str, Any]], list.__add__]
+    iteration: int
+    max_iter: int
+    sensory: Any
+    working: Any
 
 
 def _to_tool_def(tool: Callable[..., Any]) -> dict[str, Any]:
@@ -91,14 +105,21 @@ def _get_tool_calls(response: Any) -> list[dict[str, Any]]:
         return []
 
 
-class AgentState(TypedDict):
-    """Shared state across the agent graph."""
-
-    messages: Annotated[list[dict[str, Any]], list.__add__]
-    next_action: str | None
-    tool_results: Annotated[list[dict[str, Any]], list.__add__]
-    iteration: int
-    max_iter: int
+def _inject_working_summary(
+    messages: list[dict[str, Any]],
+    working: WorkingMemory | None,
+) -> list[dict[str, Any]]:
+    """Prepend a system message with the working-memory summary."""
+    if working is None:
+        return messages
+    summary = working.get_summary()
+    if summary == "(no previous steps)":
+        return messages
+    system_msg: dict[str, Any] = {
+        "role": "system",
+        "content": f"Recent context:\n{summary}",
+    }
+    return [system_msg, *list(messages)]
 
 
 def build_simple_agent(
@@ -113,8 +134,20 @@ def build_simple_agent(
         registry.register(t.__name__, t, schema)
 
     async def plan(state: AgentState) -> dict[str, Any]:
+        working = state.get("working")
+        sensory = state.get("sensory")
+
+        # Feed user input into sensory memory
+        if sensory is not None and state["messages"]:
+            last = state["messages"][-1]
+            if isinstance(last, dict) and last.get("role") == "user":
+                sensory.append(
+                    SensoryEvent(kind="user", content=last.get("content", ""))
+                )
+
+        llm_messages = _inject_working_summary(state["messages"], working)
         response = await _call_llm(
-            llm_provider, state["messages"], registry.tool_defs()
+            llm_provider, llm_messages, registry.tool_defs()
         )
         tcs = _get_tool_calls(response)
         if tcs:
@@ -137,6 +170,56 @@ def build_simple_agent(
 
     async def observe(state: AgentState) -> dict[str, Any]:
         current_iter = state.get("iteration", 0)
+        sensory = state.get("sensory")
+        working = state.get("working")
+
+        # Write tool_call + result into both memory layers
+        if sensory is not None and working is not None:
+            messages: list[Any] = state.get("messages", [])
+            if messages:
+                # Find the last assistant message
+                last_assistant_idx = -1
+                for i in range(len(messages) - 1, -1, -1):
+                    msg = messages[i]
+                    if (
+                        isinstance(msg, dict)
+                        and msg.get("role") == "assistant"
+                    ):
+                        last_assistant_idx = i
+                        break
+
+                if last_assistant_idx >= 0:
+                    assistant_msg = messages[last_assistant_idx]
+                    tcs = assistant_msg.get("tool_calls", [])
+                    if tcs:
+                        # Only process if there are fresh ToolMessages after it
+                        plan = assistant_msg.get("content", "")
+                        for tc in tcs:
+                            fn = tc.get("function", {})
+                            tool_name = fn.get("name", "")
+                            args = fn.get("arguments", "{}")
+                            for j in range(
+                                last_assistant_idx + 1, len(messages)
+                            ):
+                                tm = messages[j]
+                                tc_id = getattr(tm, "tool_call_id", None)
+                                if tc_id == tc.get("id"):
+                                    result = getattr(tm, "content", "")
+                                    sensory.append(
+                                        SensoryEvent(
+                                            kind="tool_result",
+                                            content=(
+                                                f"{tool_name} → {result}"
+                                            ),
+                                        )
+                                    )
+                                    working.add_step(
+                                        plan=plan,
+                                        action=f"{tool_name}({args})",
+                                        result=result,
+                                    )
+                                    break
+
         # Backward-compat: inject legacy tool_results if present.
         if state.get("tool_results"):
             return {
