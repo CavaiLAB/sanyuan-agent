@@ -22,6 +22,30 @@ class IMemoryStore(Protocol):
         ...
 
 
+class IEpisodicStore(Protocol):
+    """Protocol for episodic (long-term) memory persistence."""
+
+    async def add_episode(
+        self,
+        tenant_id: str,
+        conversation_id: str,
+        user_query: str,
+        final_answer: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist an episode summarising a completed agent turn."""
+        ...
+
+    async def recent_episodes(
+        self,
+        tenant_id: str,
+        conversation_id: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Return the most recent episodes, newest first."""
+        ...
+
+
 class InMemoryStore(IMemoryStore):
     """Simple dict-backed memory store."""
 
