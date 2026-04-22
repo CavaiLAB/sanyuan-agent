@@ -4,6 +4,7 @@ from neuroagent.memory.abc import IEpisodicStore, IMemoryStore, InMemoryStore
 from neuroagent.memory.episodic import Episode, EpisodicMemory
 from neuroagent.memory.recall import EpisodicRecall
 from neuroagent.memory.sensory import SensoryEvent, SensoryMemory
+from neuroagent.memory.vector import VectorRecall
 from neuroagent.memory.working import WorkingMemory, WorkingStep
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "InMemoryStore",
     "SensoryEvent",
     "SensoryMemory",
+    "VectorRecall",
     "WorkingMemory",
     "WorkingStep",
 ]

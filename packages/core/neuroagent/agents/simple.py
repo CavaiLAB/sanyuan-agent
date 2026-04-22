@@ -14,6 +14,7 @@ from neuroagent.agents.tool_executor import tool_executor_node
 from neuroagent.memory.episodic import EpisodicMemory
 from neuroagent.memory.recall import EpisodicRecall
 from neuroagent.memory.sensory import SensoryEvent
+from neuroagent.memory.vector import VectorRecall
 from neuroagent.memory.working import WorkingMemory
 from neuroagent.models import LLMProvider
 from neuroagent.tools.registry import ToolRegistry
@@ -260,8 +261,28 @@ def build_simple_agent(
     tenant_id: str = "",
     conversation_id: str = "",
 ) -> Any:
-    """Build and compile a plan/act/tool_executor/observe agent graph."""
+    """Build and compile a plan/act/tool_executor/observe agent graph.
+
+    The recall backend is controlled via the ``NEUROAGENT_MEMORY_BACKEND``
+    environment variable:
+
+    - ``"vector"``  — use :class:`VectorRecall` (sentence-transformers).
+    - ``"keyword"`` — use :class:`EpisodicRecall` with TF-IDF.
+    - ``"none"``    — disable recall entirely.
+
+    If *episodic_recall* is already provided it takes precedence.
+    """
     registry = ToolRegistry()
+
+    # Build recall from env if not explicitly provided
+    effective_recall = episodic_recall
+    if effective_recall is None and episodic_memory is not None:
+        backend = os.environ.get("NEUROAGENT_MEMORY_BACKEND", "keyword").lower()
+        if backend == "vector":
+            effective_recall = VectorRecall(store=episodic_memory)
+        elif backend == "keyword":
+            effective_recall = EpisodicRecall(store=episodic_memory, strategy="keyword")
+        # "none" or unknown → leave as None
     for t in tools:
         schema = _to_tool_def(t)["function"]
         registry.register(t.__name__, t, schema)
@@ -283,7 +304,7 @@ def build_simple_agent(
         llm_messages = _inject_working_summary(state["messages"], working)
         llm_messages = await _maybe_inject_recall(
             llm_messages,
-            episodic_recall,
+            effective_recall,
             tenant_id,
             conversation_id,
         )
