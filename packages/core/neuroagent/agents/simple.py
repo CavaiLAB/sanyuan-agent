@@ -12,6 +12,7 @@ from typing_extensions import TypedDict
 
 from neuroagent.agents.tool_executor import tool_executor_node
 from neuroagent.memory.episodic import EpisodicMemory
+from neuroagent.memory.recall import EpisodicRecall
 from neuroagent.memory.sensory import SensoryEvent
 from neuroagent.memory.working import WorkingMemory
 from neuroagent.models import LLMProvider
@@ -165,26 +166,40 @@ def _extract_user_query(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
-async def _maybe_inject_episodes(
+async def _maybe_inject_recall(
     messages: list[dict[str, Any]],
-    episodic: EpisodicMemory | None,
+    recall: EpisodicRecall | None,
     tenant_id: str,
     conversation_id: str,
 ) -> list[dict[str, Any]]:
-    """Fetch recent episodes and inject them as a system message.
+    """Fetch relevant episodes via recall and inject them as a system message.
 
     Failures are silently swallowed — episodic recall is a best-effort
     optimisation, not a hard dependency.
     """
-    if episodic is None or not tenant_id or not conversation_id:
+    if recall is None or not tenant_id:
         return messages
+
+    user_query = _extract_user_query(messages)
+    if not user_query.strip():
+        return messages
+
     try:
-        episodes = await episodic.recent_episodes(
+        episodes = await recall.recall(
             tenant_id=tenant_id,
-            conversation_id=conversation_id,
-            limit=5,
+            query=user_query,
+            conversation_id=conversation_id or None,
         )
-        return _inject_episodic_summary(messages, episodes)
+        if not episodes:
+            return messages
+        block = recall.format_prompt_block(episodes)
+        if not block:
+            return messages
+        system_msg: dict[str, Any] = {
+            "role": "system",
+            "content": block + "\n\nUse the above as background context if relevant.",
+        }
+        return [system_msg, *list(messages)]
     except Exception as exc:
         logger.warning("episodic recall failed: %s", exc)
         return messages
@@ -241,6 +256,7 @@ def build_simple_agent(
     max_iter: int = 10,
     *,
     episodic_memory: EpisodicMemory | None = None,
+    episodic_recall: EpisodicRecall | None = None,
     tenant_id: str = "",
     conversation_id: str = "",
 ) -> Any:
@@ -265,10 +281,9 @@ def build_simple_agent(
                 )
 
         llm_messages = _inject_working_summary(state["messages"], working)
-        # TODO(P1-PY-021): Replace naive recall with relevance-ranked retrieval.
-        llm_messages = await _maybe_inject_episodes(
+        llm_messages = await _maybe_inject_recall(
             llm_messages,
-            episodic_memory,
+            episodic_recall,
             tenant_id,
             conversation_id,
         )
