@@ -1,0 +1,254 @@
+"""Long-term memory store — pgvector semantic retrieval with scope isolation."""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from sqlalchemy import Column, Index, MetaData, String, Table, Text, text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from neuroagent.memory.longterm.embedding import IEmbeddingProvider
+
+logger = logging.getLogger(__name__)
+
+SCHEMA = "memory"
+PGVECTOR_DIM = 1536
+
+metadata = MetaData(schema=SCHEMA)
+
+
+class ScopeKind(StrEnum):
+    """Access scope for a memory entry."""
+
+    PRIVATE = "private"
+    TEAM = "team"
+    TENANT = "tenant"
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryEntry:
+    """A single long-term memory record."""
+
+    id: str
+    tenant_id: str
+    scope: ScopeKind
+    scope_owner_id: str | None
+    content: str
+    importance: float
+    metadata: dict[str, Any]
+    created_at: str | None
+    expires_at: str | None
+    similarity_score: float | None = None
+
+
+def longterm_memory_table(dimension: int = PGVECTOR_DIM) -> Table:
+    """Build the ``longterm_memory`` SQLAlchemy table.
+
+    The ``embedding`` column uses raw DDL (pgvector) and is created via
+    the SQL migration, not through SQLAlchemy DDL generation.
+    """
+    return Table(
+        "longterm_memory",
+        metadata,
+        Column("id", UUID(as_uuid=True), primary_key=True),
+        Column("tenant_id", UUID(as_uuid=True), nullable=False),
+        Column("scope", String(16), nullable=False, default="private"),
+        Column("scope_owner_id", UUID(as_uuid=True), nullable=True),
+        Column("content", Text, nullable=False),
+        # embedding column managed by raw SQL (pgvector)
+        Column("importance", String(), nullable=False, default="0.5"),
+        Column("metadata", JSONB, nullable=False, default=dict),
+        Column("created_at", String(), server_default=text("now()")),
+        Column("expires_at", String(), nullable=True),
+        Index(
+            "ix_longterm_tenant_scope",
+            "tenant_id",
+            "scope",
+            "scope_owner_id",
+        ),
+        extend_existing=True,
+    )
+
+
+class LongtermMemoryStore:
+    """Async PG-backed long-term memory store with pgvector semantic search.
+
+    Parameters
+    ----------
+    session_factory:
+        An ``async_sessionmaker`` bound to a PostgreSQL engine with pgvector.
+    embedding_provider:
+        Provider used to generate embeddings for storage and queries.
+    table:
+        Optional table override (for testing with alternative schemas).
+    """
+
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        embedding_provider: IEmbeddingProvider,
+        *,
+        table: Table | None = None,
+    ) -> None:
+        self._session_factory = session_factory
+        self._embedding = embedding_provider
+        self._table = table
+
+    def _get_table(self) -> Table:
+        if self._table is not None:
+            return self._table
+        return longterm_memory_table(self._embedding.dimension)
+
+    async def store(
+        self,
+        *,
+        tenant_id: str,
+        content: str,
+        scope: ScopeKind = ScopeKind.PRIVATE,
+        scope_owner_id: str | None = None,
+        importance: float = 0.5,
+        metadata: dict[str, Any] | None = None,
+        expires_at: datetime | None = None,
+    ) -> MemoryEntry:
+        """Embed *content* and persist to the longterm_memory table."""
+        vec = await self._embedding.embed(content)
+        entry_id = uuid.uuid4()
+        meta = metadata or {}
+
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        "INSERT INTO memory.longterm_memory "
+                        "(id, tenant_id, scope, scope_owner_id, content, "
+                        "embedding, importance, metadata, expires_at) "
+                        "VALUES (:id, :tid, :scope, :owner, :content, "
+                        ":embedding::vector, :importance, :meta, :expires)"
+                    ),
+                    {
+                        "id": entry_id,
+                        "tid": uuid.UUID(tenant_id),
+                        "scope": scope.value,
+                        "owner": (
+                            uuid.UUID(scope_owner_id) if scope_owner_id else None
+                        ),
+                        "content": content,
+                        "embedding": _vec_to_pg(vec),
+                        "importance": importance,
+                        "meta": _json_to_str(meta),
+                        "expires": expires_at,
+                    },
+                )
+
+        return MemoryEntry(
+            id=str(entry_id),
+            tenant_id=tenant_id,
+            scope=scope,
+            scope_owner_id=scope_owner_id,
+            content=content,
+            importance=importance,
+            metadata=meta,
+            created_at=datetime.now(UTC).isoformat(),
+            expires_at=expires_at.isoformat() if expires_at else None,
+        )
+
+    async def retrieve_semantic(
+        self,
+        *,
+        tenant_id: str,
+        query: str,
+        scope: list[ScopeKind] | None = None,
+        scope_owner_id: str | None = None,
+        limit: int = 5,
+        importance_threshold: float = 0.3,
+    ) -> list[MemoryEntry]:
+        """Semantic search via cosine similarity on pgvector.
+
+        Results are ordered by similarity (descending) and filtered by
+        *importance_threshold* and *scope*.
+        """
+        vec = await self._embedding.embed(query)
+        scopes = scope or [ScopeKind.PRIVATE, ScopeKind.TEAM, ScopeKind.TENANT]
+        scope_values = [s.value for s in scopes]
+
+        async with self._session_factory() as session:
+            rows = await session.execute(
+                text(
+                    "SELECT id, tenant_id, scope, scope_owner_id, content, "
+                    "importance, metadata, created_at, expires_at, "
+                    "1 - (embedding <=> :qvec::vector) AS similarity "
+                    "FROM memory.longterm_memory "
+                    "WHERE tenant_id = :tid "
+                    "AND scope = ANY(:scopes) "
+                    "AND importance >= :thresh "
+                    "AND (expires_at IS NULL OR expires_at > now()) "
+                    "ORDER BY embedding <=> :qvec::vector "
+                    "LIMIT :lim"
+                ),
+                {
+                    "qvec": _vec_to_pg(vec),
+                    "tid": uuid.UUID(tenant_id),
+                    "scopes": scope_values,
+                    "thresh": importance_threshold,
+                    "lim": limit,
+                },
+            )
+            results = []
+            for row in rows.mappings():
+                results.append(
+                    MemoryEntry(
+                        id=str(row["id"]),
+                        tenant_id=str(row["tenant_id"]),
+                        scope=ScopeKind(row["scope"]),
+                        scope_owner_id=(
+                            str(row["scope_owner_id"])
+                            if row["scope_owner_id"]
+                            else None
+                        ),
+                        content=row["content"],
+                        importance=float(row["importance"]),
+                        metadata=row["metadata"] or {},
+                        created_at=(
+                            row["created_at"].isoformat()
+                            if row["created_at"]
+                            else None
+                        ),
+                        expires_at=(
+                            row["expires_at"].isoformat()
+                            if row["expires_at"]
+                            else None
+                        ),
+                        similarity_score=float(row["similarity"]),
+                    )
+                )
+            return results
+
+    async def expire_old(self, cutoff: datetime) -> int:
+        """Delete entries where ``expires_at < cutoff``. Returns count deleted."""
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        "DELETE FROM memory.longterm_memory "
+                        "WHERE expires_at IS NOT NULL AND expires_at < :cutoff"
+                    ),
+                    {"cutoff": cutoff},
+                )
+                return int(result.rowcount) if result.rowcount is not None else 0  # type: ignore[attr-defined]
+
+
+def _vec_to_pg(vec: list[float]) -> str:
+    """Format a float list as a pgvector literal."""
+    return "[" + ",".join(str(v) for v in vec) + "]"
+
+
+def _json_to_str(obj: dict[str, Any]) -> str:
+    import json
+
+    return json.dumps(obj)

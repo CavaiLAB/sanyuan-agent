@@ -12,6 +12,7 @@ from typing_extensions import TypedDict
 
 from neuroagent.agents.tool_executor import tool_executor_node
 from neuroagent.memory.episodic import EpisodicMemory
+from neuroagent.memory.longterm.store import LongtermMemoryStore, ScopeKind
 from neuroagent.memory.recall import EpisodicRecall
 from neuroagent.memory.sensory import SensoryEvent
 from neuroagent.memory.vector import VectorRecall
@@ -206,6 +207,47 @@ async def _maybe_inject_recall(
         return messages
 
 
+async def _maybe_inject_longterm(
+    messages: list[dict[str, Any]],
+    longterm: LongtermMemoryStore | None,
+    tenant_id: str,
+    user_id: str,
+) -> list[dict[str, Any]]:
+    """Fetch relevant long-term memories and inject as a system message."""
+    if longterm is None or not tenant_id:
+        return messages
+
+    user_query = _extract_user_query(messages)
+    if not user_query.strip():
+        return messages
+
+    try:
+        entries = await longterm.retrieve_semantic(
+            tenant_id=tenant_id,
+            query=user_query,
+            scope=[ScopeKind.PRIVATE, ScopeKind.TEAM, ScopeKind.TENANT],
+            limit=5,
+            importance_threshold=0.3,
+        )
+        if not entries:
+            return messages
+        lines: list[str] = []
+        for e in entries:
+            lines.append(
+                f"- [{e.scope.value}] {e.content} (sim={e.similarity_score:.2f})"
+            )
+        system_msg: dict[str, Any] = {
+            "role": "system",
+            "content": "Relevant memories:\n"
+            + "\n".join(lines)
+            + "\n\nUse the above as background context if relevant.",
+        }
+        return [system_msg, *list(messages)]
+    except Exception as exc:
+        logger.warning("longterm recall failed: %s", exc)
+        return messages
+
+
 async def _maybe_save_episode(
     state: AgentState,
     episodic: EpisodicMemory | None,
@@ -258,8 +300,10 @@ def build_simple_agent(
     *,
     episodic_memory: EpisodicMemory | None = None,
     episodic_recall: EpisodicRecall | None = None,
+    longterm_memory: LongtermMemoryStore | None = None,
     tenant_id: str = "",
     conversation_id: str = "",
+    user_id: str = "",
 ) -> Any:
     """Build and compile a plan/act/tool_executor/observe agent graph.
 
@@ -271,6 +315,9 @@ def build_simple_agent(
     - ``"none"``    — disable recall entirely.
 
     If *episodic_recall* is already provided it takes precedence.
+
+    *longterm_memory* enables semantic retrieval from the pgvector-backed
+    long-term store.  Results are injected into the plan node's system prompt.
     """
     registry = ToolRegistry()
 
@@ -307,6 +354,12 @@ def build_simple_agent(
             effective_recall,
             tenant_id,
             conversation_id,
+        )
+        llm_messages = await _maybe_inject_longterm(
+            llm_messages,
+            longterm_memory,
+            tenant_id,
+            user_id,
         )
         response = await _call_llm(
             llm_provider, llm_messages, registry.tool_defs()
