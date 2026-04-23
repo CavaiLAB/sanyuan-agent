@@ -8,6 +8,7 @@ from typing import Any
 
 import litellm
 
+from neuroagent.budget.client import accumulate_budget
 from neuroagent.costs.tracker import CostTracker, LLMCallCost, compute_cost
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Module-level tracker reference — set via install_cost_callback().
 _tracker: CostTracker | None = None
 _default_tenant_id: str = ""
+_default_user_id: str = ""
 _default_run_id: str = ""
 
 
@@ -22,6 +24,7 @@ def install_cost_callback(
     tracker: CostTracker,
     *,
     default_tenant_id: str = "",
+    default_user_id: str = "",
     default_run_id: str = "",
 ) -> None:
     """Register the LiteLLM success callback.
@@ -31,19 +34,21 @@ def install_cost_callback(
         tracker = CostTracker(flush_callback=my_flush)
         install_cost_callback(tracker, default_tenant_id="t-001")
     """
-    global _tracker, _default_tenant_id, _default_run_id
+    global _tracker, _default_tenant_id, _default_user_id, _default_run_id
     _tracker = tracker
     _default_tenant_id = default_tenant_id
+    _default_user_id = default_user_id
     _default_run_id = default_run_id
     if _on_success not in litellm.success_callback:
         litellm.success_callback.append(_on_success)
 
 
-def set_run_context(run_id: str, tenant_id: str) -> None:
+def set_run_context(run_id: str, tenant_id: str, user_id: str = "") -> None:
     """Update the current run context (call per-request in the app layer)."""
-    global _default_run_id, _default_tenant_id
+    global _default_run_id, _default_tenant_id, _default_user_id
     _default_run_id = run_id
     _default_tenant_id = tenant_id
+    _default_user_id = user_id
 
 
 def _on_success(
@@ -100,6 +105,14 @@ def _on_success(
             tenant_id=kwargs.get("tenant_id", _default_tenant_id),
         )
         _tracker.enqueue(record)
+
+        # Push cost into Platform budget counters (USD)
+        accumulate_budget(
+            tenant_id=record.tenant_id,
+            user_id=_default_user_id,
+            run_id=record.run_id,
+            cost=record.cost_cents / 100.0,
+        )
     except Exception:
         logger.exception("cost tracking callback error")
 

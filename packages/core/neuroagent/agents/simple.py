@@ -11,6 +11,7 @@ from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
 from neuroagent.agents.tool_executor import tool_executor_node
+from neuroagent.budget.client import BudgetExceeded, check_budget
 from neuroagent.memory.episodic import EpisodicMemory
 from neuroagent.memory.longterm.store import LongtermMemoryStore, ScopeKind
 from neuroagent.memory.recall import EpisodicRecall
@@ -334,6 +335,7 @@ def build_simple_agent(
     tenant_id: str = "",
     conversation_id: str = "",
     user_id: str = "",
+    run_id: str = "",
 ) -> Any:
     """Build and compile a plan/act/tool_executor/observe agent graph.
 
@@ -392,6 +394,15 @@ def build_simple_agent(
             tenant_id,
             user_id,
         )
+
+        # Budget pre-check (fail-open if Platform is unreachable)
+        budget_decision = await check_budget(tenant_id, user_id, run_id)
+        if not budget_decision.get("allowed", True):
+            raise BudgetExceeded(
+                budget_decision.get("usedPercent", 0.0),
+                budget_decision.get("state"),
+            )
+
         response = await _call_llm(
             llm_provider, llm_messages, registry.tool_defs()
         )
