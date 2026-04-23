@@ -69,6 +69,95 @@ class StorageArtifactClient:
             return await result
         return result
 
+    async def register_sandbox_artifact(
+        self,
+        tenant_id: str,
+        content_bytes: bytes,
+        content_type: str,
+        filename: str,
+        *,
+        run_id: str | None = None,
+        user_id: str | None = None,
+        origin_path: str | None = None,
+    ) -> ArtifactRef:
+        """Upload a sandbox output file as an artifact.
+
+        Unlike ``create_artifact`` this method skips the content-type
+        whitelist (the caller validates via extension blacklist) and
+        enforces a **100 MB** size limit.  Optional *run_id*, *user_id*,
+        and *origin_path* metadata are forwarded to the Storage service.
+
+        Raises:
+            ValueError: payload exceeds 100 MB.
+            httpx.HTTPStatusError: Storage service error after one retry.
+        """
+        _sandbox_max = 100 * 1024 * 1024
+        if len(content_bytes) > _sandbox_max:
+            raise ValueError(
+                f"Payload too large: {len(content_bytes)} bytes "
+                f"(max {_sandbox_max})",
+            )
+
+        digest = _sha256(content_bytes)
+        token = await self._token()
+        headers: dict[str, str] = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+        meta_payload: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "filename": filename,
+            "content_type": content_type,
+            "size": len(content_bytes),
+            "sha256": digest,
+        }
+        if run_id is not None:
+            meta_payload["run_id"] = run_id
+        if user_id is not None:
+            meta_payload["user_id"] = user_id
+        if origin_path is not None:
+            meta_payload["origin_path"] = origin_path
+
+        # Step 1 — request upload slot
+        meta_resp = await self._post_with_retry(
+            f"{self._base_url}/api/v1/storage/artifacts",
+            json=meta_payload,
+            headers=headers,
+        )
+        meta_resp.raise_for_status()
+        meta = meta_resp.json()
+        artifact_id: str = meta["artifact_id"]
+        upload_url: str = meta["upload_url"]
+
+        # Step 2 — upload bytes to presigned URL
+        upload_resp = await self._put_with_retry(
+            upload_url,
+            content=content_bytes,
+            headers={
+                "Content-Type": content_type,
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+        upload_resp.raise_for_status()
+
+        # Step 3 — complete
+        complete_resp = await self._post_with_retry(
+            f"{self._base_url}/api/v1/storage/artifacts/{artifact_id}/complete",
+            json={"sha256": digest},
+            headers=headers,
+        )
+        complete_resp.raise_for_status()
+        complete = complete_resp.json()
+
+        return ArtifactRef(
+            id=artifact_id,
+            url=complete.get("download_url", upload_url),
+            sha256=digest,
+            filename=filename,
+            content_type=content_type,
+        )
+
     async def create_artifact(
         self,
         tenant_id: str,
