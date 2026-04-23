@@ -1,8 +1,8 @@
 """SKILL.md parser and in-memory skill registry."""
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
 
 import yaml
 
@@ -17,6 +17,7 @@ class Skill:
     tools: list[str]
     prompt_template: str
     source_path: Path
+    trigger_keywords: list[str] = field(default_factory=list)
 
 
 class SkillRegistry:
@@ -48,6 +49,22 @@ class SkillRegistry:
     def __iter__(self) -> Iterator[Skill]:
         return iter(self._skills.values())
 
+    def match_trigger(self, text: str) -> Skill | None:
+        """Return the first skill whose trigger_keywords match *text* (case-insensitive)."""
+        text_lower = text.lower()
+        for skill in self._skills.values():
+            for kw in skill.trigger_keywords:
+                if kw.lower() in text_lower:
+                    return skill
+        return None
+
+    def load_prompt(self, skill: Skill) -> str:
+        """Load the ``prompt.md`` file adjacent to a skill's SKILL.md."""
+        prompt_path = skill.source_path.parent / "prompt.md"
+        if prompt_path.exists():
+            return prompt_path.read_text(encoding="utf-8")
+        return skill.prompt_template
+
 
 def parse_skill(path: Path) -> Skill:
     """Parse a SKILL.md file with YAML frontmatter + markdown body."""
@@ -73,6 +90,7 @@ def parse_skill(path: Path) -> Skill:
         tools=list(meta.get("tools", [])),
         prompt_template=body,
         source_path=path,
+        trigger_keywords=list(meta.get("trigger_keywords", [])),
     )
 
 

@@ -18,6 +18,7 @@ from neuroagent.memory.sensory import SensoryEvent
 from neuroagent.memory.vector import VectorRecall
 from neuroagent.memory.working import WorkingMemory
 from neuroagent.models import LLMProvider
+from neuroagent.skills.registry import SkillRegistry
 from neuroagent.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -248,6 +249,34 @@ async def _maybe_inject_longterm(
         return messages
 
 
+def _maybe_inject_skill(
+    messages: list[dict[str, Any]],
+    skill_registry: SkillRegistry | None,
+) -> list[dict[str, Any]]:
+    """Check user message for skill trigger keywords and inject skill prompt."""
+    if skill_registry is None:
+        return messages
+
+    user_query = _extract_user_query(messages)
+    if not user_query.strip():
+        return messages
+
+    skill = skill_registry.match_trigger(user_query)
+    if skill is None:
+        return messages
+
+    prompt = skill_registry.load_prompt(skill)
+    if not prompt:
+        return messages
+
+    system_msg: dict[str, Any] = {
+        "role": "system",
+        "content": f"[Skill: {skill.name}] {prompt}",
+    }
+    logger.info("Skill triggered: %s (keyword match in: %s)", skill.name, user_query[:60])
+    return [system_msg, *list(messages)]
+
+
 async def _maybe_save_episode(
     state: AgentState,
     episodic: EpisodicMemory | None,
@@ -301,6 +330,7 @@ def build_simple_agent(
     episodic_memory: EpisodicMemory | None = None,
     episodic_recall: EpisodicRecall | None = None,
     longterm_memory: LongtermMemoryStore | None = None,
+    skill_registry: SkillRegistry | None = None,
     tenant_id: str = "",
     conversation_id: str = "",
     user_id: str = "",
@@ -349,6 +379,7 @@ def build_simple_agent(
                 )
 
         llm_messages = _inject_working_summary(state["messages"], working)
+        llm_messages = _maybe_inject_skill(llm_messages, skill_registry)
         llm_messages = await _maybe_inject_recall(
             llm_messages,
             effective_recall,

@@ -1,0 +1,5 @@
+tools:
+  - web_search
+  - web_fetch
+timeout_ms: 120000
+max_rounds: 5

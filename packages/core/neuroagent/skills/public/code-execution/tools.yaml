@@ -1,0 +1,6 @@
+tools:
+  - bash
+  - file_ops
+timeout_ms: 30000
+max_timeout_ms: 120000
+max_files: 10
