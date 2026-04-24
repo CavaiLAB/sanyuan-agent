@@ -5,6 +5,7 @@ from neuroagent.tools.bash import build_bash_tool
 from neuroagent.tools.browser import BrowserSession, CDPClient, build_browser_tools
 from neuroagent.tools.file_ops import build_file_ops_tools
 from neuroagent.tools.registry import ToolRegistry
+from neuroagent.tools.sandbox_tool import build_sandbox_tools, set_sandbox_context
 from neuroagent.tools.web_fetch import build_web_fetch_tool
 from neuroagent.tools.web_search import build_web_search_tool
 
@@ -16,6 +17,8 @@ __all__ = [
     "build_bash_tool",
     "build_browser_tools",
     "build_file_ops_tools",
+    "build_sandbox_tools",
     "build_web_fetch_tool",
     "build_web_search_tool",
+    "set_sandbox_context",
 ]
