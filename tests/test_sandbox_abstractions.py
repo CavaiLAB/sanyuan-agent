@@ -4,10 +4,10 @@ Every method on the abstract base must raise NotImplementedError
 when called on a concrete subclass that does not override it.
 """
 
-import pytest
 from datetime import datetime
 
-from neuroagent.sandbox import ISandboxProvider, SandboxSession, SandboxResult
+import pytest
+from neuroagent.sandbox import ISandboxProvider, SandboxResult, SandboxSession
 
 
 class _MinimalProvider(ISandboxProvider):

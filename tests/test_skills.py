@@ -1,8 +1,8 @@
 """Tests for skill parsing and registry."""
 
-import pytest
 from pathlib import Path
 
+import pytest
 from neuroagent.skills import SkillRegistry, load_skills_dir, parse_skill
 
 

@@ -1,9 +1,9 @@
 """Full lifecycle tests for LocalSandboxProvider."""
 
-import pytest
 import tempfile
 from pathlib import Path
 
+import pytest
 from neuroagent.sandbox.local import LocalSandboxProvider
 
 

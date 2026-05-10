@@ -7,7 +7,6 @@ NOT suitable for production — zero isolation boundaries.
 import asyncio
 import shlex
 import shutil
-import subprocess
 import tempfile
 import uuid
 from pathlib import Path

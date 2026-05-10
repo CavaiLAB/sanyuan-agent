@@ -4,9 +4,8 @@ Pure typing + dataclass — AOT-friendly, no reflection.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 
 @dataclass(frozen=True, slots=True)

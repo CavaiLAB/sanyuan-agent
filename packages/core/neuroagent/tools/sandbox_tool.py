@@ -19,7 +19,6 @@ from typing import Any, Protocol, runtime_checkable
 
 from langchain_core.tools import tool
 
-
 # ---------------------------------------------------------------------------
 # Context vars — set by the gateway before each agent invocation
 # ---------------------------------------------------------------------------

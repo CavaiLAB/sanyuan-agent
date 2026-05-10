@@ -1,8 +1,8 @@
 """Tests for LLM provider registry and acompletion wrapper."""
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from neuroagent.models import LLMProvider, LLMProviderRegistry, acompletion
 
 
