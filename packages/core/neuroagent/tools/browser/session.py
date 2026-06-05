@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
+import os
+import re
 import time
 from typing import Any
 
@@ -18,6 +21,7 @@ _USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
+_DEFAULT_QUARANTINE_DIR = "/tmp/iclaw-quarantine"
 
 # Module-level session cache: thread_id → BrowserSession
 _session_cache: dict[str, BrowserSession] = {}
@@ -47,11 +51,17 @@ class BrowserSession:
         tenant_id: str = "",
         timeout_ms: int = _DEFAULT_TIMEOUT,
         cdp_url: str | None = None,
+        quarantine_dir: str | None = None,
     ) -> None:
         self._artifact_client = artifact_client
         self._tenant_id = tenant_id
         self._timeout_ms = timeout_ms
         self._cdp_url = cdp_url
+        # Downloads never land in the workspace directly: they are written to an
+        # isolated quarantine dir and flagged unscanned (Sandbox Spec — download
+        # quarantine, Phase 1 safety baseline). Release is an explicit step.
+        self._quarantine_dir = quarantine_dir or _DEFAULT_QUARANTINE_DIR
+        self._downloads: list[dict[str, Any]] = []
         self._playwright: Any = None
         self._browser: Any = None
         self._context: Any = None
@@ -101,12 +111,14 @@ class BrowserSession:
                 self._context = await self._browser.new_context(
                     viewport=_VIEWPORT,
                     user_agent=_USER_AGENT,
+                    accept_downloads=True,
                 )
         else:
             self._browser = await self._playwright.chromium.launch(headless=True)
             self._context = await self._browser.new_context(
                 viewport=_VIEWPORT,
                 user_agent=_USER_AGENT,
+                accept_downloads=True,
             )
 
         pages = self._context.pages
@@ -210,6 +222,68 @@ class BrowserSession:
             "text": inner_text,
             "html": html,
         }
+
+    async def accessibility_tree(self) -> dict[str, Any]:
+        """Return the page's accessibility tree (structured page model)."""
+        page = await self._ensure_page()
+        try:
+            snapshot = await page.accessibility.snapshot()
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+        return {
+            "success": True,
+            "title": await page.title(),
+            "url": page.url,
+            "tree": snapshot,
+        }
+
+    # ---- Downloads (quarantined) ----
+
+    async def download(self, trigger_selector: str) -> dict[str, Any]:
+        """Click *trigger_selector* and capture the resulting download into the
+        quarantine dir — never the workspace. Returns the quarantine record."""
+        page = await self._ensure_page()
+        try:
+            async with page.expect_download(timeout=self._timeout_ms) as dl_info:
+                await page.click(trigger_selector, timeout=self._timeout_ms)
+            download = await dl_info.value
+            record = await self._quarantine_download(download)
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+        return {"success": True, **record}
+
+    async def _quarantine_download(self, download: Any) -> dict[str, Any]:
+        """Save a Playwright download into the quarantine dir, flagged unscanned.
+
+        The file is hashed and recorded; it is NOT placed in the workspace, so a
+        run cannot use downloaded bytes until an explicit (Phase 2) release step.
+        """
+        os.makedirs(self._quarantine_dir, exist_ok=True)
+        suggested = download.suggested_filename or "download"
+        safe = re.sub(r"[^A-Za-z0-9._-]", "_", suggested) or "download"
+        dest = os.path.join(
+            self._quarantine_dir, f"{len(self._downloads):04d}-{safe}"
+        )
+        await download.save_as(dest)
+        try:
+            with open(dest, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            data = b""
+        record = {
+            "suggestedFilename": suggested,
+            "quarantinePath": dest,
+            "sizeBytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "status": "quarantined",
+            "scanned": False,
+        }
+        self._downloads.append(record)
+        return record
+
+    def list_downloads(self) -> list[dict[str, Any]]:
+        """Return all downloads captured into quarantine this session."""
+        return list(self._downloads)
 
     # ---- Lifecycle ----
 

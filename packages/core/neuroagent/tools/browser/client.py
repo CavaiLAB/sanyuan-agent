@@ -56,8 +56,10 @@ class CDPClient:
             resp = await client.post(url)
             if resp.status_code == 200:
                 data = resp.json()
-                cdp_url: str = data["cdp_ws_url"]
-                logger.info("CDP URL from supervisor: %s", cdp_url)
+                # The supervisor returns its *proxy* ws url (camelCase API), so
+                # Playwright connects through the audited proxy, not the container.
+                cdp_url: str = data["cdpWsUrl"]
+                logger.info("CDP URL from supervisor proxy: %s", cdp_url)
                 return cdp_url
         except httpx.HTTPError as exc:
             logger.warning("CDP endpoint request failed: %s", exc)

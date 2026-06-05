@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -22,6 +24,23 @@ async def _async_return(val: Any) -> Any:
     return val
 
 
+class _FakeAccessibility:
+    async def snapshot(self, **kwargs: Any) -> dict[str, Any]:
+        return {"role": "WebArea", "name": "Example", "children": []}
+
+
+class _FakeDownload:
+    """Minimal async fake for a Playwright Download."""
+
+    def __init__(self, suggested: str, content: bytes) -> None:
+        self.suggested_filename = suggested
+        self._content = content
+
+    async def save_as(self, path: str) -> None:
+        with open(path, "wb") as fh:
+            fh.write(self._content)
+
+
 class FakePage:
     """Minimal async fake for Playwright Page."""
 
@@ -29,6 +48,7 @@ class FakePage:
         self.url = "https://example.com"
         self._title = "Example"
         self._html = "<body><h1>Hello</h1><p id='content'>World</p></body>"
+        self.accessibility = _FakeAccessibility()
 
     async def goto(self, url: str, **kwargs: Any) -> None:
         self.url = url
@@ -396,7 +416,7 @@ async def test_cdp_client_resolves_from_supervisor() -> None:
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
-        "cdp_ws_url": "ws://sandbox:9222/devtools/browser/abc",
+        "cdpWsUrl": "ws://sandbox:9222/devtools/browser/abc",
     }
 
     mock_client = AsyncMock()
@@ -571,3 +591,75 @@ async def test_read_dom_default_selector(registry: ToolRegistry) -> None:
     read_dom = registry.get("browser_read_dom")
     result = await read_dom()
     assert result["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# 25. Accessibility tree tool
+# ---------------------------------------------------------------------------
+
+
+async def test_browser_accessibility_tool(registry: ToolRegistry) -> None:
+    build_browser_tools(registry, _factory())
+    a11y = registry.get("browser_accessibility")
+    result = await a11y()
+    assert result["success"] is True
+    assert result["tree"]["role"] == "WebArea"
+
+
+# ---------------------------------------------------------------------------
+# 26. Download quarantine: isolates + flags unscanned + hashes
+# ---------------------------------------------------------------------------
+
+
+async def test_quarantine_download_isolates_and_flags(tmp_path: Any) -> None:
+    s = BrowserSession.__new__(BrowserSession)
+    s._quarantine_dir = str(tmp_path / "q")
+    s._downloads = []
+
+    content = b"%PDF-1.4 fake-report"
+    rec = await s._quarantine_download(_FakeDownload("report.pdf", content))
+
+    assert rec["status"] == "quarantined"
+    assert rec["scanned"] is False
+    assert rec["suggestedFilename"] == "report.pdf"
+    assert rec["sizeBytes"] == len(content)
+    assert rec["sha256"] == hashlib.sha256(content).hexdigest()
+    # The bytes land in the quarantine dir — never the workspace.
+    assert os.path.dirname(os.path.abspath(rec["quarantinePath"])) == str(tmp_path / "q")
+    assert os.path.exists(rec["quarantinePath"])
+    assert s.list_downloads() == [rec]
+
+
+# ---------------------------------------------------------------------------
+# 27. Download quarantine: a malicious filename cannot escape the dir
+# ---------------------------------------------------------------------------
+
+
+async def test_quarantine_download_blocks_path_traversal(tmp_path: Any) -> None:
+    s = BrowserSession.__new__(BrowserSession)
+    s._quarantine_dir = str(tmp_path)
+    s._downloads = []
+
+    rec = await s._quarantine_download(_FakeDownload("../../etc/passwd", b"x"))
+    # The path-separators in the suggested name are sanitised away, so the file
+    # stays inside the quarantine dir.
+    assert os.path.dirname(os.path.abspath(rec["quarantinePath"])) == str(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# 28. browser_downloads tool lists the quarantine
+# ---------------------------------------------------------------------------
+
+
+async def test_browser_downloads_tool_lists_quarantine(
+    registry: ToolRegistry, tmp_path: Any
+) -> None:
+    s = _mock_session()
+    s._quarantine_dir = str(tmp_path)
+    s._downloads = [{"suggestedFilename": "a.bin", "status": "quarantined"}]
+
+    build_browser_tools(registry, _factory(s))
+    downloads = registry.get("browser_downloads")
+    result = await downloads()
+    assert result["success"] is True
+    assert result["downloads"][0]["suggestedFilename"] == "a.bin"

@@ -86,12 +86,41 @@ def build_browser_tools(
             logger.warning("browser_read_dom failed: %s", exc)
             return {"success": False, "error": str(exc)}
 
+    async def browser_accessibility(thread_id: str = "default") -> dict[str, Any]:
+        """Return the page's accessibility tree (structured, non-visual page model)."""
+        sess = await _get_session(thread_id)
+        try:
+            return await sess.accessibility_tree()
+        except Exception as exc:
+            logger.warning("browser_accessibility failed: %s", exc)
+            return {"success": False, "error": str(exc)}
+
+    async def browser_download(
+        trigger_selector: str, thread_id: str = "default"
+    ) -> dict[str, Any]:
+        """Click the selector and capture the download into quarantine (never the
+        workspace). Returns the quarantine record (path, sha256, status)."""
+        sess = await _get_session(thread_id)
+        try:
+            return await sess.download(trigger_selector)
+        except Exception as exc:
+            logger.warning("browser_download failed: %s", exc)
+            return {"success": False, "error": str(exc)}
+
+    async def browser_downloads(thread_id: str = "default") -> dict[str, Any]:
+        """List files this browser session captured into download quarantine."""
+        sess = await _get_session(thread_id)
+        return {"success": True, "downloads": sess.list_downloads()}
+
     _tools = [
         ("browser_navigate", browser_navigate),
         ("browser_click", browser_click),
         ("browser_type", browser_type),
         ("browser_screenshot", browser_screenshot),
         ("browser_read_dom", browser_read_dom),
+        ("browser_accessibility", browser_accessibility),
+        ("browser_download", browser_download),
+        ("browser_downloads", browser_downloads),
     ]
     for name, fn in _tools:
         registry.register(name, fn, callable_to_schema(fn))  # type: ignore[arg-type]
