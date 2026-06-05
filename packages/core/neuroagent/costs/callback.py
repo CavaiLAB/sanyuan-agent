@@ -1,4 +1,4 @@
-"""LiteLLM success callback that enqueues cost records into CostTracker."""
+"""LiteLLM success callback that enqueues token-usage records into UsageTracker."""
 
 from __future__ import annotations
 
@@ -8,20 +8,19 @@ from typing import Any
 
 import litellm
 
-from neuroagent.budget.client import accumulate_budget
-from neuroagent.costs.tracker import CostTracker, LLMCallCost, compute_cost
+from neuroagent.costs.tracker import LLMCallUsage, UsageTracker
 
 logger = logging.getLogger(__name__)
 
-# Module-level tracker reference — set via install_cost_callback().
-_tracker: CostTracker | None = None
+# Module-level tracker reference — set via install_usage_callback().
+_tracker: UsageTracker | None = None
 _default_tenant_id: str = ""
 _default_user_id: str = ""
 _default_run_id: str = ""
 
 
-def install_cost_callback(
-    tracker: CostTracker,
+def install_usage_callback(
+    tracker: UsageTracker,
     *,
     default_tenant_id: str = "",
     default_user_id: str = "",
@@ -31,8 +30,8 @@ def install_cost_callback(
 
     Call once during application startup::
 
-        tracker = CostTracker(flush_callback=my_flush)
-        install_cost_callback(tracker, default_tenant_id="t-001")
+        tracker = UsageTracker(flush_callback=my_flush)
+        install_usage_callback(tracker, default_tenant_id="t-001")
     """
     global _tracker, _default_tenant_id, _default_user_id, _default_run_id
     _tracker = tracker
@@ -57,10 +56,10 @@ def _on_success(
     start_time: Any,
     end_time: Any,
 ) -> None:
-    """LiteLLM ``success_callback`` — enqueues a cost record.
+    """LiteLLM ``success_callback`` — enqueues a token-usage record.
 
     Signature matches ``litellm.success_callback`` convention.
-    Runs synchronously in LiteLLM's thread; ``CostTracker.enqueue`` is
+    Runs synchronously in LiteLLM's thread; ``UsageTracker.enqueue`` is
     thread-safe.
     """
     if _tracker is None:
@@ -68,10 +67,6 @@ def _on_success(
 
     try:
         model = _safe_str(kwargs.get("model", "") or getattr(completion_response, "model", ""))
-
-        # LiteLLM stores cost info in _hidden_params
-        hidden = getattr(completion_response, "_hidden_params", {}) or {}
-        litellm_cost = hidden.get("response_cost")
 
         # Token usage
         usage = getattr(completion_response, "usage", None)
@@ -82,39 +77,19 @@ def _on_success(
         # Provider inference from model string
         provider = _infer_provider(model)
 
-        # Cost calculation
-        cost_input_per_1k = kwargs.get("cost_input_per_1k", 0.0)
-        cost_output_per_1k = kwargs.get("cost_output_per_1k", 0.0)
-        cost_cents = compute_cost(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost_input_per_1k=cost_input_per_1k,
-            cost_output_per_1k=cost_output_per_1k,
-            litellm_cost=litellm_cost,
-        )
-
-        record = LLMCallCost(
+        record = LLMCallUsage(
             run_id=kwargs.get("run_id", _default_run_id),
             model=model,
             provider=provider,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
-            cost_cents=round(cost_cents, 6),
             timestamp=time.time(),
             tenant_id=kwargs.get("tenant_id", _default_tenant_id),
         )
         _tracker.enqueue(record)
-
-        # Push cost into Platform budget counters (USD)
-        accumulate_budget(
-            tenant_id=record.tenant_id,
-            user_id=_default_user_id,
-            run_id=record.run_id,
-            cost=record.cost_cents / 100.0,
-        )
     except Exception:
-        logger.exception("cost tracking callback error")
+        logger.exception("usage tracking callback error")
 
 
 def _safe_str(val: Any) -> str:

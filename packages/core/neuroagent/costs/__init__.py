@@ -1,10 +1,10 @@
-"""LiteLLM cost tracking — async callback, queue-based DB write, OTel metric."""
+"""LiteLLM token-usage tracking — async callback, queue-based DB write, OTel metric."""
 
-from neuroagent.costs.callback import install_cost_callback
-from neuroagent.costs.tracker import CostTracker, LLMCallCost
+from neuroagent.costs.callback import install_usage_callback
+from neuroagent.costs.tracker import LLMCallUsage, UsageTracker
 
 __all__ = [
-    "CostTracker",
-    "LLMCallCost",
-    "install_cost_callback",
+    "LLMCallUsage",
+    "UsageTracker",
+    "install_usage_callback",
 ]
