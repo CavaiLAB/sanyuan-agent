@@ -1,15 +1,22 @@
 """SKILL.md parser and in-memory skill registry."""
 
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import yaml
 
+from .signing import SkillVerifier
+
 
 @dataclass(frozen=True, slots=True)
 class Skill:
-    """A loaded skill definition."""
+    """A loaded skill definition.
+
+    ``trust`` is ``builtin`` for first-party skills (trusted by provenance) or
+    ``custom`` for user-uploaded ones. ``status`` is ``active`` (loadable) or
+    ``pending`` (awaiting a valid signature — never injected into prompts).
+    """
 
     name: str
     version: str
@@ -18,6 +25,18 @@ class Skill:
     prompt_template: str
     source_path: Path
     trigger_keywords: list[str] = field(default_factory=list)
+    signature: str | None = None
+    status: str = "active"
+    trust: str = "builtin"
+
+
+@dataclass(frozen=True, slots=True)
+class SkillLoadResult:
+    """Outcome of attempting to load a custom skill."""
+
+    skill: Skill
+    accepted: bool
+    reason: str  # "signed" | "unsigned" | "bad_signature"
 
 
 class SkillRegistry:
@@ -91,7 +110,48 @@ def parse_skill(path: Path) -> Skill:
         prompt_template=body,
         source_path=path,
         trigger_keywords=list(meta.get("trigger_keywords", [])),
+        signature=meta.get("signature"),
     )
+
+
+def load_custom_skill(
+    path: Path,
+    registry: SkillRegistry,
+    verifier: SkillVerifier,
+) -> SkillLoadResult:
+    """Parse + verify a user-uploaded skill, registering it only if signed.
+
+    A skill with a valid Ed25519 signature is registered as ``active``;
+    unsigned or tampered skills are returned as ``pending`` and NOT registered,
+    so they can never be injected into a prompt.
+    """
+    parsed = parse_skill(path)
+    if parsed.signature and verifier.verify(
+        parsed.name, parsed.version, parsed.prompt_template, parsed.signature
+    ):
+        skill = replace(parsed, trust="custom", status="active")
+        registry.register(skill)
+        return SkillLoadResult(skill, accepted=True, reason="signed")
+
+    reason = "unsigned" if not parsed.signature else "bad_signature"
+    pending = replace(parsed, trust="custom", status="pending")
+    return SkillLoadResult(pending, accepted=False, reason=reason)
+
+
+def load_custom_skills_dir(
+    directory: Path,
+    registry: SkillRegistry,
+    verifier: SkillVerifier,
+) -> list[SkillLoadResult]:
+    """Load every ``*/SKILL.md`` under *directory* through signature verification."""
+    results: list[SkillLoadResult] = []
+    if not directory.exists():
+        return results
+    for subdir in sorted(d for d in directory.iterdir() if d.is_dir()):
+        skill_file = subdir / "SKILL.md"
+        if skill_file.exists():
+            results.append(load_custom_skill(skill_file, registry, verifier))
+    return results
 
 
 def load_skills_dir(directory: Path, registry: SkillRegistry) -> None:
