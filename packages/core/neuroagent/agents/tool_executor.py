@@ -182,16 +182,23 @@ async def tool_executor_node(
     ``ToolRegistry`` passed via ``config["configurable"]["tool_registry"]``,
     executes them with recovery (_recover_tool_call), and appends
     ``ToolMessage`` instances to the conversation.
+
+    A high-risk action confirmation gate (PRD §9.1) is consulted when a
+    ``risk_gate`` is supplied via config: a high-risk call that is not in
+    ``confirmed_tool_calls`` is returned as ``[confirmation-required]`` and not
+    executed. Absent a gate, behaviour is unchanged.
     """
-    registry: ToolRegistry | None = config.get("configurable", {}).get(
-        "tool_registry"
-    )
+    configurable = config.get("configurable", {})
+    registry: ToolRegistry | None = configurable.get("tool_registry")
     if registry is None:
         return {}
 
     tcs = _last_assistant_tool_calls(state)
     if not tcs:
         return {}
+
+    risk_gate = configurable.get("risk_gate")
+    confirmed = configurable.get("confirmed_tool_calls") or frozenset()
 
     tool_messages: list[ToolMessage] = []
     for tc in tcs:
@@ -205,6 +212,25 @@ async def tool_executor_node(
                 )
             )
             continue
+
+        if risk_gate is not None:
+            name = sanitized["function"]["name"]
+            args_raw = sanitized["function"]["arguments"]
+            if risk_gate.requires_confirmation(
+                name, args_raw, tc_id=sanitized["id"], confirmed_ids=confirmed
+            ):
+                tool_messages.append(
+                    ToolMessage(
+                        content=(
+                            f"[confirmation-required] '{name}' is a high-risk operation "
+                            "and needs explicit user confirmation before it runs."
+                        ),
+                        tool_call_id=sanitized["id"],
+                        name=name,
+                    )
+                )
+                continue
+
         msg = await _recover_tool_call(sanitized, registry)
         tool_messages.append(msg)
 
