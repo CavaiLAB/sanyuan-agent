@@ -24,6 +24,16 @@ from neuroagent.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
+def _merge_usage(a: dict[str, int] | None, b: dict[str, int] | None) -> dict[str, int]:
+    """Reducer: sum token-usage deltas across reasoning turns (None-safe)."""
+    a = a or {}
+    b = b or {}
+    return {
+        "promptTokens": a.get("promptTokens", 0) + b.get("promptTokens", 0),
+        "completionTokens": a.get("completionTokens", 0) + b.get("completionTokens", 0),
+    }
+
+
 class AgentState(TypedDict):
     """Shared state across the agent graph."""
 
@@ -34,6 +44,8 @@ class AgentState(TypedDict):
     max_iter: int
     sensory: Any
     working: Any
+    # Cumulative LLM token usage across the run (summed by _merge_usage).
+    usage: Annotated[dict[str, int], _merge_usage]
 
 
 def _to_tool_def(tool: Callable[..., Any]) -> dict[str, Any]:
@@ -92,6 +104,15 @@ def _get_content(response: Any) -> str:
         return response.choices[0].message.content or ""
     except (AttributeError, IndexError):
         return ""
+
+
+def _get_usage(response: Any) -> dict[str, int]:
+    """Extract this call's token usage from a litellm response (0s if absent)."""
+    usage = getattr(response, "usage", None)
+    return {
+        "promptTokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+        "completionTokens": int(getattr(usage, "completion_tokens", 0) or 0),
+    }
 
 
 def _get_tool_calls(response: Any) -> list[dict[str, Any]]:
@@ -397,6 +418,7 @@ def build_simple_agent(
         response = await _call_llm(
             llm_provider, llm_messages, registry.tool_defs()
         )
+        usage = _get_usage(response)
         tcs = _get_tool_calls(response)
         if tcs:
             msg: dict[str, Any] = {
@@ -404,14 +426,14 @@ def build_simple_agent(
                 "content": _get_content(response),
                 "tool_calls": tcs,
             }
-            return {"next_action": "tool_call", "messages": [msg]}
+            return {"next_action": "tool_call", "messages": [msg], "usage": usage}
         msg = {"role": "assistant", "content": _get_content(response)}
 
         # Session ends here — save episode asynchronously (best-effort)
         await _maybe_save_episode(
             state, episodic_memory, tenant_id, conversation_id, session_started_at
         )
-        return {"next_action": "stop", "messages": [msg]}
+        return {"next_action": "stop", "messages": [msg], "usage": usage}
 
     async def act(state: AgentState) -> dict[str, Any]:
         """Routing node — decides whether tool execution is needed."""
