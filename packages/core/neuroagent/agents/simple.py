@@ -50,7 +50,17 @@ class AgentState(TypedDict):
 
 
 def _to_tool_def(tool: Callable[..., Any]) -> dict[str, Any]:
-    """Convert a plain callable to an OpenAI-style tool definition."""
+    """Convert a callable to an OpenAI-style tool definition.
+
+    A tool that carries an explicit ``__tool_schema__`` (the ``function`` object)
+    — e.g. an MCP-adapted tool whose JSON schema can't be reflected from a
+    generic ``**kwargs`` wrapper — has it used verbatim. Otherwise the schema is
+    reflected from the callable's signature.
+    """
+    explicit = getattr(tool, "__tool_schema__", None)
+    if isinstance(explicit, dict):
+        return {"type": "function", "function": explicit}
+
     sig = inspect.signature(tool)
     props: dict[str, dict[str, str]] = {}
     required: list[str] = []

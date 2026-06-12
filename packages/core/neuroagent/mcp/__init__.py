@@ -7,7 +7,12 @@ tools/call); ``register_mcp_tools`` bridges the discovered tools into a
 ``AgentSpec.tools`` reference picks them up like any built-in tool.
 """
 
-from .bridge import mcp_tool_schema, qualified_tool_name, register_mcp_tools
+from .bridge import (
+    make_mcp_tools,
+    mcp_tool_schema,
+    qualified_tool_name,
+    register_mcp_tools,
+)
 from .client import McpClient, McpError, McpToolDef, McpToolError
 from .transport import McpTransport, McpTransportError, StdioTransport
 
@@ -19,6 +24,7 @@ __all__ = [
     "McpTransport",
     "McpTransportError",
     "StdioTransport",
+    "make_mcp_tools",
     "mcp_tool_schema",
     "qualified_tool_name",
     "register_mcp_tools",

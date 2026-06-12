@@ -59,14 +59,38 @@ async def register_mcp_tools(
     return registered
 
 
+async def make_mcp_tools(
+    client: McpClient,
+    *,
+    server_name: str = "",
+) -> list[Callable[..., Any]]:
+    """Adapt the server's tools into plain callables (no registry needed).
+
+    Each callable carries its JSON schema via ``__tool_schema__`` — honoured
+    by the agent builder's tool-definition reflection — so MCP tools slot
+    directly into ``build_simple_agent(tools=...)`` like any builtin tool.
+    """
+    server = server_name or client.server_name or "server"
+    return [
+        _make_proxy(client, tool, qualified_tool_name(server, tool.name))
+        for tool in await client.list_tools()
+    ]
+
+
 def _make_proxy(
     client: McpClient, tool: McpToolDef, qualified: str
 ) -> Callable[..., Any]:
-    """An LLM-callable that forwards keyword arguments to the MCP server."""
+    """An LLM-callable that forwards keyword arguments to the MCP server.
+
+    The proxy's ``**arguments`` signature can't be reflected into the tool's
+    real JSON schema, so the schema rides along verbatim in
+    ``__tool_schema__`` for tool-definition builders to use.
+    """
 
     async def proxy(**arguments: Any) -> str:
         return await client.call_tool(tool.name, arguments)
 
     proxy.__name__ = qualified
     proxy.__doc__ = tool.description or f"MCP tool {tool.name!r}"
+    proxy.__tool_schema__ = mcp_tool_schema(qualified, tool)  # type: ignore[attr-defined]
     return proxy
