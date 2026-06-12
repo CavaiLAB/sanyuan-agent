@@ -17,6 +17,10 @@ class LLMProvider:
     api_base: str = ""
     api_key_env: str = ""
     default_model: str = ""
+    # Ordered alternative model ids tried (in order) when the primary model
+    # hits a *transient* failure (rate-limit / connection / timeout / 5xx).
+    # Empty = single-attempt, today's behaviour.
+    fallback_models: tuple[str, ...] = ()
 
 
 class LLMProviderRegistry:

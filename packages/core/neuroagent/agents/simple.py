@@ -94,26 +94,52 @@ async def _call_llm(
     *temperature* / *max_tokens* are passed through only when set, so callers
     that omit them keep litellm's defaults (no behaviour change).
     """
-    kwargs: dict[str, Any] = {
-        "model": provider.default_model,
-        "messages": messages,
-    }
+    base_kwargs: dict[str, Any] = {"messages": messages}
     if provider.api_key_env:
-        kwargs["api_key"] = os.environ.get(provider.api_key_env)
+        base_kwargs["api_key"] = os.environ.get(provider.api_key_env)
     if provider.api_base:
-        kwargs["api_base"] = provider.api_base
+        base_kwargs["api_base"] = provider.api_base
     if tools:
-        kwargs["tools"] = tools
+        base_kwargs["tools"] = tools
     if metadata:
-        kwargs["metadata"] = metadata
+        base_kwargs["metadata"] = metadata
     if temperature is not None:
-        kwargs["temperature"] = temperature
+        base_kwargs["temperature"] = temperature
     if max_tokens is not None:
-        kwargs["max_tokens"] = max_tokens
+        base_kwargs["max_tokens"] = max_tokens
+
     # Delay import so tests can patch *before* the module is imported.
     import litellm
 
-    return await litellm.acompletion(**kwargs)
+    # Transient failures worth retrying on another model. Bad-request / auth
+    # errors are excluded — a different model won't fix a malformed request.
+    fallback_exceptions = (
+        litellm.RateLimitError,
+        litellm.APIConnectionError,
+        litellm.Timeout,
+        litellm.ServiceUnavailableError,
+        litellm.InternalServerError,
+    )
+
+    # Try the primary model, then each fallback in order on a *transient*
+    # failure. Non-transient errors bubble immediately.
+    model_chain = (provider.default_model, *provider.fallback_models)
+    last_exc: Exception | None = None
+    for i, model in enumerate(model_chain):
+        try:
+            return await litellm.acompletion(model=model, **base_kwargs)
+        except fallback_exceptions as exc:
+            last_exc = exc
+            remaining = model_chain[i + 1 :]
+            if remaining:
+                logger.warning(
+                    "model %r failed (%s); falling back to %r",
+                    model,
+                    type(exc).__name__,
+                    remaining[0],
+                )
+    assert last_exc is not None  # only reachable after a caught failure
+    raise last_exc
 
 
 def _get_content(response: Any) -> str:

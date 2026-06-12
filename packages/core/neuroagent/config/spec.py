@@ -20,6 +20,8 @@ class AgentSpec(BaseModel):
     llm_provider: str = Field(description="name registered in LLMProviderRegistry")
     # Overrides the provider's default_model (a litellm model id). Empty = inherit.
     model: str = ""
+    # Ordered alternative model ids tried on a transient failure of the primary.
+    fallback_models: list[str] = Field(default_factory=list)
     temperature: float = 0.7
     max_tokens: int = 4096
     tools: list[str] = Field(default_factory=list, description="ToolRegistry names")

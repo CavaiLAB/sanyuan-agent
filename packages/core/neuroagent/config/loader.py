@@ -53,8 +53,13 @@ def load_agent_from_spec(
     a tool or skill reference is unknown.
     """
     provider = llm_registry.get(spec.llm_provider)  # KeyError if missing
+    overrides: dict[str, Any] = {}
     if spec.model:
-        provider = dataclasses.replace(provider, default_model=spec.model)
+        overrides["default_model"] = spec.model
+    if spec.fallback_models:
+        overrides["fallback_models"] = tuple(spec.fallback_models)
+    if overrides:
+        provider = dataclasses.replace(provider, **overrides)
 
     tools = []
     for tool_name in spec.tools:
