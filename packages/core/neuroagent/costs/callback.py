@@ -77,15 +77,21 @@ def _on_success(
         # Provider inference from model string
         provider = _infer_provider(model)
 
+        # Per-call context travels in litellm metadata (set by _call_llm);
+        # module-level defaults are only a fallback for legacy callers.
+        litellm_params = kwargs.get("litellm_params") or {}
+        metadata = litellm_params.get("metadata") or {}
+
         record = LLMCallUsage(
-            run_id=kwargs.get("run_id", _default_run_id),
+            run_id=metadata.get("run_id") or kwargs.get("run_id", _default_run_id),
             model=model,
             provider=provider,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
             timestamp=time.time(),
-            tenant_id=kwargs.get("tenant_id", _default_tenant_id),
+            tenant_id=metadata.get("tenant_id")
+            or kwargs.get("tenant_id", _default_tenant_id),
         )
         _tracker.enqueue(record)
     except Exception:

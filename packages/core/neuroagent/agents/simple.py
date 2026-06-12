@@ -81,8 +81,13 @@ async def _call_llm(
     provider: LLMProvider,
     messages: list[dict[str, str]],
     tools: list[dict[str, Any]],
+    metadata: dict[str, str] | None = None,
 ) -> Any:
-    """Unified async LLM call via LiteLLM."""
+    """Unified async LLM call via LiteLLM.
+
+    *metadata* (run_id / tenant_id) rides along in litellm's metadata so the
+    usage success-callback can attribute the call without global state.
+    """
     kwargs: dict[str, Any] = {
         "model": provider.default_model,
         "messages": messages,
@@ -93,6 +98,8 @@ async def _call_llm(
         kwargs["api_base"] = provider.api_base
     if tools:
         kwargs["tools"] = tools
+    if metadata:
+        kwargs["metadata"] = metadata
     # Delay import so tests can patch *before* the module is imported.
     import litellm
 
@@ -388,6 +395,11 @@ def build_simple_agent(
 
     session_started_at = time.time()
 
+    # Per-call usage attribution for the litellm success-callback.
+    llm_metadata = {
+        k: v for k, v in (("run_id", run_id), ("tenant_id", tenant_id)) if v
+    } or None
+
     async def plan(state: AgentState) -> dict[str, Any]:
         working = state.get("working")
         sensory = state.get("sensory")
@@ -416,7 +428,7 @@ def build_simple_agent(
         )
 
         response = await _call_llm(
-            llm_provider, llm_messages, registry.tool_defs()
+            llm_provider, llm_messages, registry.tool_defs(), metadata=llm_metadata
         )
         usage = _get_usage(response)
         tcs = _get_tool_calls(response)
