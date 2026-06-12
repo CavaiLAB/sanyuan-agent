@@ -38,6 +38,8 @@ class AgentSpec(BaseModel):
     tools: list[str] = Field(default_factory=list, description="ToolRegistry names")
     skills: list[str] = Field(default_factory=list, description="SkillRegistry names")
     max_iterations: int = 10
+    # Rough token bound for the message window sent to the LLM each turn.
+    context_token_budget: int = Field(default=24000, gt=0)
     # Ordered permission rules (first match wins); default applies when none match.
     tool_policy: list[ToolPolicyRule] = Field(default_factory=list)
     tool_policy_default: Literal["allow", "deny", "confirm"] = "allow"

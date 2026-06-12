@@ -98,6 +98,7 @@ def load_agent_from_spec(
         max_tokens=spec.max_tokens,
         skill_registry=scoped_skills,
         tool_policy=policy,
+        context_token_budget=spec.context_token_budget,
         **agent_kwargs,
     )
     return LoadedAgent(graph=graph, spec=spec)

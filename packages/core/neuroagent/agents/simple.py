@@ -11,6 +11,7 @@ from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
 from neuroagent.agents.tool_executor import tool_executor_node
+from neuroagent.memory.context import trim_messages
 from neuroagent.memory.episodic import EpisodicMemory
 from neuroagent.memory.longterm.store import LongtermMemoryStore, ScopeKind
 from neuroagent.memory.recall import EpisodicRecall
@@ -409,6 +410,7 @@ def build_simple_agent(
     longterm_memory: LongtermMemoryStore | None = None,
     skill_registry: SkillRegistry | None = None,
     tool_policy: ToolPolicy | None = None,
+    context_token_budget: int = 24000,
     tenant_id: str = "",
     conversation_id: str = "",
     user_id: str = "",
@@ -462,7 +464,8 @@ def build_simple_agent(
                     SensoryEvent(kind="user", content=last.get("content", ""))
                 )
 
-        llm_messages = _inject_working_summary(state["messages"], working)
+        bounded = trim_messages(state["messages"], token_budget=context_token_budget)
+        llm_messages = _inject_working_summary(bounded, working)
         llm_messages = _maybe_inject_skill(llm_messages, skill_registry)
         llm_messages = await _maybe_inject_recall(
             llm_messages,
