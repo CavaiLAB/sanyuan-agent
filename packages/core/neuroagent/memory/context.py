@@ -11,6 +11,7 @@ result (which would break OpenAI tool-call pairing).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 _CHARS_PER_TOKEN = 4
@@ -35,7 +36,14 @@ def _content(msg: Any) -> str:
 
 
 def _msg_tokens(msg: Any) -> int:
-    return estimate_tokens(_content(msg)) + _PER_MESSAGE_OVERHEAD
+    # tool_calls arguments (file contents, large payloads) can dwarf content.
+    tool_calls = (
+        msg.get("tool_calls") if isinstance(msg, dict) else getattr(msg, "tool_calls", None)
+    )
+    extra = 0
+    if tool_calls:
+        extra = estimate_tokens(json.dumps(tool_calls, ensure_ascii=False, default=str))
+    return estimate_tokens(_content(msg)) + extra + _PER_MESSAGE_OVERHEAD
 
 
 def trim_messages(
@@ -77,9 +85,13 @@ def trim_messages(
         spent += cost
         start -= 1
 
-    # Never start the kept tail on an orphaned tool result.
-    while start < len(body) and _role(body[start]) == "tool":
-        start += 1
+    # Never start the kept tail on an orphaned tool result: walk back to the
+    # assistant turn that issued it, so the pair stays intact. (Walking back
+    # can only grow the tail — the plan node runs right after a tool round,
+    # so the list typically *ends* in tool results; skipping forward instead
+    # would run off the end and silently abandon trimming.)
+    while 0 < start < len(body) and _role(body[start]) == "tool":
+        start -= 1
 
     if start <= 0 or start >= len(body):
         return messages  # nothing sensible to elide

@@ -101,6 +101,56 @@ class TestTrimMessages:
         msgs = [_msg("system", "s" * 100_000), _msg("user", "task")]
         assert trim_messages(msgs, token_budget=10) is msgs
 
+    def test_trailing_parallel_tool_block_still_trims(self) -> None:
+        """The plan node runs right after a tool round, so the list ends in
+        tool results. A final assistant turn with >= keep_recent parallel
+        calls and huge results must not silently disable trimming."""
+        msgs: list[Any] = [_msg("system", "s"), _msg("user", "task")]
+        for i in range(20):
+            msgs.append(_msg("assistant", f"thought {i} " + "x" * 400))
+            msgs.append(_msg("user", f"reply {i} " + "y" * 400))
+        tc_ids = [f"par-{i}" for i in range(4)]
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": t} for t in tc_ids],
+            }
+        )
+        for t in tc_ids:
+            msgs.append(ToolMessage(content="r" * 4000, tool_call_id=t, name="search"))
+
+        trimmed = trim_messages(msgs, token_budget=2000, keep_recent=4)
+
+        assert len(trimmed) < len(msgs)  # trimming did NOT bail out
+        # The kept tail starts at the parent assistant turn — pair intact.
+        after_marker = trimmed[3]
+        assert isinstance(after_marker, dict)
+        assert [tc["id"] for tc in after_marker.get("tool_calls", [])] == tc_ids
+        assert all(isinstance(m, ToolMessage) for m in trimmed[-4:])
+
+    def test_tool_call_arguments_count_toward_budget(self) -> None:
+        """Huge tool_calls arguments with empty content must trigger trimming."""
+        msgs: list[Any] = [_msg("system", "s"), _msg("user", "task")]
+        for i in range(30):
+            msgs.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": f"w-{i}",
+                            "function": {"name": "write_file", "arguments": "z" * 8000},
+                        }
+                    ],
+                }
+            )
+            msgs.append(ToolMessage(content="ok", tool_call_id=f"w-{i}", name="write_file"))
+
+        trimmed = trim_messages(msgs, token_budget=2000, keep_recent=2)
+
+        assert len(trimmed) < len(msgs)
+
 
 class TestAgentWiring:
     def test_spec_default_and_validation(self) -> None:
