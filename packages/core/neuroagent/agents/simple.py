@@ -82,11 +82,17 @@ async def _call_llm(
     messages: list[dict[str, str]],
     tools: list[dict[str, Any]],
     metadata: dict[str, str] | None = None,
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> Any:
     """Unified async LLM call via LiteLLM.
 
     *metadata* (run_id / tenant_id) rides along in litellm's metadata so the
     usage success-callback can attribute the call without global state.
+
+    *temperature* / *max_tokens* are passed through only when set, so callers
+    that omit them keep litellm's defaults (no behaviour change).
     """
     kwargs: dict[str, Any] = {
         "model": provider.default_model,
@@ -100,6 +106,10 @@ async def _call_llm(
         kwargs["tools"] = tools
     if metadata:
         kwargs["metadata"] = metadata
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
     # Delay import so tests can patch *before* the module is imported.
     import litellm
 
@@ -355,6 +365,8 @@ def build_simple_agent(
     tools: list[Callable[..., Any]],
     max_iter: int = 10,
     *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
     episodic_memory: EpisodicMemory | None = None,
     episodic_recall: EpisodicRecall | None = None,
     longterm_memory: LongtermMemoryStore | None = None,
@@ -428,7 +440,12 @@ def build_simple_agent(
         )
 
         response = await _call_llm(
-            llm_provider, llm_messages, registry.tool_defs(), metadata=llm_metadata
+            llm_provider,
+            llm_messages,
+            registry.tool_defs(),
+            metadata=llm_metadata,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         usage = _get_usage(response)
         tcs = _get_tool_calls(response)
