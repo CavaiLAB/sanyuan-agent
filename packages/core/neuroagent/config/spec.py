@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class ToolPolicyRule(BaseModel):
+    """One ordered permission rule: glob *pattern* over tool names + action."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pattern: str = Field(min_length=1)
+    action: Literal["allow", "deny", "confirm"]
 
 
 class AgentSpec(BaseModel):
@@ -27,3 +38,6 @@ class AgentSpec(BaseModel):
     tools: list[str] = Field(default_factory=list, description="ToolRegistry names")
     skills: list[str] = Field(default_factory=list, description="SkillRegistry names")
     max_iterations: int = 10
+    # Ordered permission rules (first match wins); default applies when none match.
+    tool_policy: list[ToolPolicyRule] = Field(default_factory=list)
+    tool_policy_default: Literal["allow", "deny", "confirm"] = "allow"

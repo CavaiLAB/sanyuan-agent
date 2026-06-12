@@ -14,6 +14,7 @@ from typing import Any
 
 from neuroagent.agents.simple import build_simple_agent
 from neuroagent.models import LLMProviderRegistry
+from neuroagent.security.tool_policy import PolicyRule, ToolPolicy
 from neuroagent.skills.registry import SkillRegistry
 from neuroagent.tools.registry import ToolRegistry
 
@@ -82,6 +83,13 @@ def load_agent_from_spec(
                 ) from exc
             scoped_skills.register(skill)
 
+    policy: ToolPolicy | None = None
+    if spec.tool_policy or spec.tool_policy_default != "allow":
+        policy = ToolPolicy(
+            [PolicyRule(rule.pattern, rule.action) for rule in spec.tool_policy],
+            default=spec.tool_policy_default,
+        )
+
     graph = build_simple_agent(
         llm_provider=provider,
         tools=tools,
@@ -89,6 +97,7 @@ def load_agent_from_spec(
         temperature=spec.temperature,
         max_tokens=spec.max_tokens,
         skill_registry=scoped_skills,
+        tool_policy=policy,
         **agent_kwargs,
     )
     return LoadedAgent(graph=graph, spec=spec)

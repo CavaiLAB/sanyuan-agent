@@ -187,6 +187,12 @@ async def tool_executor_node(
     ``risk_gate`` is supplied via config: a high-risk call that is not in
     ``confirmed_tool_calls`` is returned as ``[confirmation-required]`` and not
     executed. Absent a gate, behaviour is unchanged.
+
+    A per-agent permission policy is consulted when a ``tool_policy`` is
+    supplied via config: a ``deny`` decision is returned as
+    ``[policy-denied]`` without executing; a ``confirm`` decision requires the
+    call id in ``confirmed_tool_calls`` (same flow as the risk gate). Absent a
+    policy, behaviour is unchanged.
     """
     configurable = config.get("configurable", {})
     registry: ToolRegistry | None = configurable.get("tool_registry")
@@ -198,6 +204,7 @@ async def tool_executor_node(
         return {}
 
     risk_gate = configurable.get("risk_gate")
+    tool_policy = configurable.get("tool_policy")
     confirmed = configurable.get("confirmed_tool_calls") or frozenset()
 
     tool_messages: list[ToolMessage] = []
@@ -212,6 +219,34 @@ async def tool_executor_node(
                 )
             )
             continue
+
+        if tool_policy is not None:
+            name = sanitized["function"]["name"]
+            decision = tool_policy.decide(name)
+            if decision == "deny":
+                tool_messages.append(
+                    ToolMessage(
+                        content=(
+                            f"[policy-denied] Tool '{name}' is not permitted "
+                            "for this agent. Use one of the allowed tools instead."
+                        ),
+                        tool_call_id=sanitized["id"],
+                        name=name,
+                    )
+                )
+                continue
+            if decision == "confirm" and sanitized["id"] not in confirmed:
+                tool_messages.append(
+                    ToolMessage(
+                        content=(
+                            f"[confirmation-required] '{name}' requires explicit "
+                            "user confirmation by this agent's tool policy."
+                        ),
+                        tool_call_id=sanitized["id"],
+                        name=name,
+                    )
+                )
+                continue
 
         if risk_gate is not None:
             name = sanitized["function"]["name"]

@@ -18,6 +18,7 @@ from neuroagent.memory.sensory import SensoryEvent
 from neuroagent.memory.vector import VectorRecall
 from neuroagent.memory.working import WorkingMemory
 from neuroagent.models import LLMProvider
+from neuroagent.security.tool_policy import ToolPolicy
 from neuroagent.skills.registry import SkillRegistry
 from neuroagent.tools.registry import ToolRegistry
 
@@ -397,6 +398,7 @@ def build_simple_agent(
     episodic_recall: EpisodicRecall | None = None,
     longterm_memory: LongtermMemoryStore | None = None,
     skill_registry: SkillRegistry | None = None,
+    tool_policy: ToolPolicy | None = None,
     tenant_id: str = "",
     conversation_id: str = "",
     user_id: str = "",
@@ -576,7 +578,7 @@ def build_simple_agent(
     async def tool_executor(state: AgentState) -> dict[str, Any]:
         return await tool_executor_node(
             cast(dict[str, Any], state),
-            {"configurable": {"tool_registry": registry}},
+            {"configurable": {"tool_registry": registry, "tool_policy": tool_policy}},
         )
 
     builder = StateGraph(AgentState)

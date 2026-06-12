@@ -6,12 +6,13 @@ instead of being hand-wired at each ``build_simple_agent`` call site.
 """
 
 from .loader import LoadedAgent, load_agent_from_spec
-from .spec import AgentSpec
+from .spec import AgentSpec, ToolPolicyRule
 from .yaml_loader import load_agent_from_yaml
 
 __all__ = [
     "AgentSpec",
     "LoadedAgent",
+    "ToolPolicyRule",
     "load_agent_from_spec",
     "load_agent_from_yaml",
 ]
