@@ -51,6 +51,8 @@ class GCRunStats:
     last_sandbox_soft_count: int = 0
     last_sandbox_hard_count: int = 0
     last_sensory_expired_count: int = 0
+    last_longterm_expired_count: int = 0
+    last_longterm_evicted_count: int = 0
 
 
 async def _noop_audit(event: str, data: dict[str, Any]) -> None:

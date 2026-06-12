@@ -10,6 +10,7 @@ from neuroagent.gc.collector import (
     SandboxCollector,
     SensoryCollector,
 )
+from neuroagent.gc.longterm import LongtermCollector
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +38,12 @@ class GCScheduler:
         sandbox_collector: SandboxCollector,
         sensory_collector: SensoryCollector | None = None,
         *,
+        longterm_collector: LongtermCollector | None = None,
         config: GCConfig | None = None,
     ) -> None:
         self._sandbox = sandbox_collector
         self._sensory = sensory_collector
+        self._longterm = longterm_collector
         self._config = config or GCConfig()
         self._task: asyncio.Task[None] | None = None
         self._running = False
@@ -79,6 +82,10 @@ class GCScheduler:
         if self._sensory is not None:
             expired = await self._sensory.collect()
             stats.last_sensory_expired_count = expired
+        if self._longterm is not None:
+            lt_stats = await self._longterm.collect()
+            stats.last_longterm_expired_count = lt_stats.last_expired_count
+            stats.last_longterm_evicted_count = lt_stats.last_evicted_count
         return stats
 
     async def _run_loop(self) -> None:

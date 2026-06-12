@@ -242,6 +242,30 @@ class LongtermMemoryStore:
                 )
                 return int(result.rowcount) if result.rowcount is not None else 0  # type: ignore[attr-defined]
 
+    async def enforce_capacity(self, max_entries_per_tenant: int) -> int:
+        """Evict overflow beyond *max_entries_per_tenant* for every tenant.
+
+        Keeps the highest-importance (newest first within a tie) entries;
+        everything ranked past the cap is deleted. Returns count deleted.
+        """
+        if max_entries_per_tenant <= 0:
+            raise ValueError("max_entries_per_tenant must be > 0")
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        "DELETE FROM memory.longterm_memory WHERE id IN ("
+                        "SELECT id FROM ("
+                        "SELECT id, row_number() OVER ("
+                        "PARTITION BY tenant_id "
+                        "ORDER BY importance DESC, created_at DESC"
+                        ") AS rn FROM memory.longterm_memory"
+                        ") ranked WHERE rn > :cap)"
+                    ),
+                    {"cap": max_entries_per_tenant},
+                )
+                return int(result.rowcount) if result.rowcount is not None else 0  # type: ignore[attr-defined]
+
 
 def _vec_to_pg(vec: list[float]) -> str:
     """Format a float list as a pgvector literal."""
