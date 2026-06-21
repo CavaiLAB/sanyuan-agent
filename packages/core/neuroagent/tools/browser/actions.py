@@ -6,12 +6,29 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from neuroagent.tools.block_detect import detect_block
 from neuroagent.tools.browser.session import BrowserSession
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[str], Awaitable[BrowserSession]]
+
+
+def _annotate_block(result: dict[str, Any]) -> dict[str, Any]:
+    """Tag a successful page result with ``blocked``/``block_reason``.
+
+    A soft anti-bot page navigates fine (success + HTTP 200) but its content is a
+    captcha/拦截 wall — surface that structurally instead of as a clean page.
+    """
+    if not isinstance(result, dict) or not result.get("success"):
+        return result
+    blocked, reason = detect_block(
+        url=str(result.get("url") or ""),
+        title=str(result.get("title") or ""),
+        content=str(result.get("text") or result.get("content") or ""),
+    )
+    return {**result, "blocked": blocked, "block_reason": reason}
 
 
 def build_browser_tools(
@@ -39,7 +56,7 @@ def build_browser_tools(
         """Navigate the browser to the given URL. Only http(s) URLs allowed."""
         sess = await _get_session(thread_id)
         try:
-            return await sess.navigate(url)
+            return _annotate_block(await sess.navigate(url))
         except Exception as exc:
             logger.warning("browser_navigate failed: %s", exc)
             return {"success": False, "error": str(exc)}
@@ -81,7 +98,7 @@ def build_browser_tools(
         """Read the inner text and HTML of the element matching the selector."""
         sess = await _get_session(thread_id)
         try:
-            return await sess.read_dom(selector)
+            return _annotate_block(await sess.read_dom(selector))
         except Exception as exc:
             logger.warning("browser_read_dom failed: %s", exc)
             return {"success": False, "error": str(exc)}

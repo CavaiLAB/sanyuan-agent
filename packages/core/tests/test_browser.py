@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from neuroagent.artifacts.client import ArtifactRef
-from neuroagent.tools.browser.actions import build_browser_tools
+from neuroagent.tools.browser.actions import _annotate_block, build_browser_tools
 from neuroagent.tools.browser.client import CDPClient
 from neuroagent.tools.browser.session import BrowserSession, _session_cache
 from neuroagent.tools.registry import ToolRegistry
@@ -663,3 +663,41 @@ async def test_browser_downloads_tool_lists_quarantine(
     result = await downloads()
     assert result["success"] is True
     assert result["downloads"][0]["suggestedFilename"] == "a.bin"
+
+
+class TestAnnotateBlock:
+    """navigate/read_dom results are tagged blocked on anti-bot pages."""
+
+    def test_block_page_flagged(self) -> None:
+        out = _annotate_block(
+            {"success": True, "title": "访问已被拦截", "url": "https://bj.zu.anjuke.com/x"}
+        )
+        assert out["blocked"] is True
+        assert out["block_reason"]
+
+    def test_normal_page_not_flagged(self) -> None:
+        out = _annotate_block(
+            {
+                "success": True,
+                "title": "北京租金",
+                "url": "https://example.com/p",
+                "text": "整租均价 8500 元 环比小幅上涨",
+            }
+        )
+        assert out["blocked"] is False
+        assert out["block_reason"] is None
+
+    def test_read_dom_text_feeds_detection(self) -> None:
+        out = _annotate_block(
+            {
+                "success": True,
+                "title": "",
+                "url": "https://x.com/p",
+                "text": '<div class="g-recaptcha"></div>',
+            }
+        )
+        assert out["blocked"] is True
+
+    def test_failed_result_passes_through_untouched(self) -> None:
+        out = _annotate_block({"success": False, "error": "boom"})
+        assert "blocked" not in out

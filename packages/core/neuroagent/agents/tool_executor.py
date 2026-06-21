@@ -165,10 +165,20 @@ async def _recover_tool_call(
             name=name,
         )
 
+    # Lift a tool's structured soft-block signal onto the message so the SSE layer
+    # can flag it (a captcha/拦截 page returns HTTP 200, so it's not an error).
+    additional: dict[str, Any] = {}
+    if isinstance(result, dict) and result.get("blocked"):
+        additional["blocked"] = True
+        reason = result.get("block_reason")
+        if reason:
+            additional["block_reason"] = str(reason)
+
     return ToolMessage(
         content=str(result),
         tool_call_id=tc_id,
         name=name,
+        additional_kwargs=additional,
     )
 
 

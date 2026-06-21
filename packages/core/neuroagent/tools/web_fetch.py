@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from neuroagent.tools.block_detect import detect_block
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 WebFetchTool = Callable[[str], Awaitable[dict[str, Any]]]
@@ -94,9 +95,19 @@ async def _fetch(
             )
 
         safe_text = text or ""
+        final_url = str(resp.url)
+        page_title = safe_text.strip().splitlines()[0] if safe_text else ""
+        # Soft blocks (anti-bot / captcha pages) come back as HTTP 200, so
+        # raise_for_status above can't catch them. Flag them structurally for the
+        # UI; the front-end heuristic is only a fallback for this signal.
+        blocked, block_reason = detect_block(
+            url=final_url, title=page_title, content=safe_text
+        )
         return {
-            "url": str(resp.url),
-            "title": safe_text.strip().splitlines()[0] if safe_text else "",
+            "url": final_url,
+            "title": page_title,
             "content": safe_text,
             "status_code": resp.status_code,
+            "blocked": blocked,
+            "block_reason": block_reason,
         }

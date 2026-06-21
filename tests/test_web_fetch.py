@@ -156,3 +156,39 @@ class TestWebFetchGuards:
 
         with pytest.raises(httpx.HTTPStatusError):
             await tool("https://example.com/404")
+
+
+@pytest.mark.asyncio
+class TestWebFetchBlockSignal:
+    """A 200 anti-bot page is flagged `blocked` (raise_for_status can't see it)."""
+
+    @respx.mock
+    async def test_soft_block_page_flagged(self):
+        reg = ToolRegistry()
+        tool = build_web_fetch_tool(reg)
+        respx.get("https://bj.zu.anjuke.com/x").mock(
+            return_value=Response(
+                200,
+                text="访问已被拦截\n请完成安全验证后重试",
+                headers={"content-type": "text/plain"},
+            )
+        )
+        result = await tool("https://bj.zu.anjuke.com/x")
+        assert result["status_code"] == 200
+        assert result["blocked"] is True
+        assert result["block_reason"]
+
+    @respx.mock
+    async def test_normal_page_not_flagged(self):
+        reg = ToolRegistry()
+        tool = build_web_fetch_tool(reg)
+        respx.get("https://example.com/post").mock(
+            return_value=Response(
+                200,
+                text="北京二居室租金趋势\n2024 年安贞西里整租均价约 8500 元 环比小幅上涨",
+                headers={"content-type": "text/plain"},
+            )
+        )
+        result = await tool("https://example.com/post")
+        assert result["blocked"] is False
+        assert result["block_reason"] is None
