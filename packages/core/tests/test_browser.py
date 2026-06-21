@@ -698,6 +698,34 @@ class TestAnnotateBlock:
         )
         assert out["blocked"] is True
 
+    def test_read_dom_html_feeds_decisive_fingerprints(self) -> None:
+        out = _annotate_block(
+            {
+                "success": True,
+                "title": "",
+                "url": "https://x.com/p",
+                "text": "challenge",
+                "html": '<div id="px-captcha"></div>',
+            }
+        )
+        assert out["blocked"] is True
+
+    def test_clean_html_recaptcha_widget_is_not_blocked(self) -> None:
+        out = _annotate_block(
+            {
+                "success": True,
+                "title": "Account login",
+                "url": "https://example.com/login",
+                "text": (
+                    "Sign in to continue. This page includes a normal account form, "
+                    "remember-me checkbox, password reset link, and support contact."
+                ),
+                "html": '<form><input name="email"><div class="g-recaptcha"></div></form>',
+            }
+        )
+        assert out["blocked"] is False
+        assert out["block_reason"] is None
+
     def test_failed_result_passes_through_untouched(self) -> None:
         out = _annotate_block({"success": False, "error": "boom"})
         assert "blocked" not in out

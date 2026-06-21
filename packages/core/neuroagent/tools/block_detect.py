@@ -17,7 +17,8 @@ Conservatism rules (kept in lockstep with ``apps/web/src/lib/toolOutcome.ts``):
   discusses anti-bot mechanisms has a long body, which is never scanned.
 * **Vendor fingerprints** distinctive enough to never occur in prose
   (``px-captcha``, ``_incapsula_resource``, ``/cdn-cgi/challenge-platform`` …)
-  are decisive on their own.
+  are decisive on their own. Embedded widgets such as ``g-recaptcha`` are only
+  weak/contextual signals because normal login/comment pages may include them.
 """
 
 from __future__ import annotations
@@ -61,7 +62,6 @@ _STRONG_PHRASES: tuple[str, ...] = (
 # widget ids, vendor challenge hosts — never ordinary prose).
 _UNIQUE_FINGERPRINTS: tuple[str, ...] = (
     "/cdn-cgi/challenge-platform",  # Cloudflare challenge
-    "g-recaptcha",  # Google reCAPTCHA widget
     "px-captcha",  # PerimeterX / HUMAN
     "/_px/",  # PerimeterX
     "_incapsula_resource",  # Imperva / Incapsula
@@ -95,6 +95,7 @@ _WEAK_PHRASES: tuple[str, ...] = (
     "datadome",
     "perimeterx",
     "incapsula",
+    "g-recaptcha",
 )
 
 # A body shorter than this is treated as "interstitial-sized" — block pages carry
@@ -104,7 +105,7 @@ _SHORT_BODY = 40
 
 
 def detect_block(
-    *, url: str = "", title: str = "", content: str = ""
+    *, url: str = "", title: str = "", content: str = "", html: str = ""
 ) -> tuple[bool, str | None]:
     """Return ``(blocked, reason)`` for a fetched/navigated page.
 
@@ -113,6 +114,7 @@ def detect_block(
     url = url or ""
     title = title or ""
     content = content or ""
+    html = html or ""
 
     # 1. Redirected to a block-landing path. Anchored patterns; scan the final
     #    URL only (never the body — a slug in prose must not count).
@@ -126,7 +128,7 @@ def detect_block(
         return True, "目标站点返回了反爬/验证页(命中拦截标题)"
 
     # 3. Decisive vendor fingerprint anywhere.
-    low_all = f"{title}\n{url}\n{content}".lower()
+    low_all = f"{title}\n{url}\n{content}\n{html}".lower()
     if any(fp in low_all for fp in _UNIQUE_FINGERPRINTS):
         return True, "目标站点启用了人机验证(反爬服务)"
     if any(p.search(low_all) for p in _FINGERPRINT_PATTERNS):
@@ -138,6 +140,12 @@ def detect_block(
     weak_hay = (f"{title}\n{url}\n{content}" if short else f"{title}\n{url}").lower()
     weak_hits = sum(1 for p in _WEAK_PHRASES if p in weak_hay)
     if weak_hits >= 2 or (weak_hits >= 1 and short):
+        return True, "目标站点疑似返回了验证/拦截页"
+
+    # HTML-only reCAPTCHA widgets are common on legitimate login/comment pages.
+    # Treat them as supporting evidence only when title/url/short text already
+    # supplies a weak block context; never let the widget alone mark the page.
+    if "g-recaptcha" in html.lower() and weak_hits >= 1:
         return True, "目标站点疑似返回了验证/拦截页"
 
     return False, None

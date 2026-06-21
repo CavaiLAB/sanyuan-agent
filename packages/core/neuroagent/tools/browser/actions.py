@@ -27,6 +27,7 @@ def _annotate_block(result: dict[str, Any]) -> dict[str, Any]:
         url=str(result.get("url") or ""),
         title=str(result.get("title") or ""),
         content=str(result.get("text") or result.get("content") or ""),
+        html=str(result.get("html") or ""),
     )
     return {**result, "blocked": blocked, "block_reason": reason}
 

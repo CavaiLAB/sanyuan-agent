@@ -31,7 +31,6 @@ class TestBlockedPositives:
         assert detect_block(title="Attention Required! | Cloudflare")[0] is True
 
     def test_unique_fingerprints(self) -> None:
-        assert detect_block(content='<div class="g-recaptcha"></div>')[0] is True
         assert detect_block(content="cdn.example/_px/xhr px-captcha")[0] is True
         assert detect_block(content="loads https://geo.captcha-delivery.com/captcha/")[0] is True
         assert detect_block(content="window._Incapsula_Resource('SWJIYLWA')")[0] is True
@@ -46,6 +45,14 @@ class TestBlockedPositives:
     def test_weak_cooccurrence_short_body(self) -> None:
         # One weak hit alone is not enough unless the body is interstitial-sized.
         blocked, _ = detect_block(title="提示", content="请完成人机验证")
+        assert blocked is True
+
+    def test_recaptcha_widget_with_block_context(self) -> None:
+        blocked, _ = detect_block(
+            title="人机验证",
+            content="请输入验证码",
+            html='<div class="g-recaptcha"></div>',
+        )
         assert blocked is True
 
 
@@ -89,6 +96,18 @@ class TestBlockedNegatives:
             )[0]
             is False
         )
+
+    def test_clean_long_page_with_recaptcha_widget(self) -> None:
+        blocked, _ = detect_block(
+            url="https://example.com/login",
+            title="Account login",
+            content=(
+                "Sign in to continue. This page includes a normal account form, "
+                "remember-me checkbox, password reset link, and support contact."
+            ),
+            html='<form><input name="email"><div class="g-recaptcha"></div></form>',
+        )
+        assert blocked is False
 
     def test_empty(self) -> None:
         assert detect_block()[0] is False
