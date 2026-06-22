@@ -383,8 +383,43 @@ loaded = load_agent_from_spec(
 ```
 
 注意：`bash` / 文件类工具需要 `ISandboxProvider` + 会话注入，仍经 Sandbox Supervisor 边界执行，
-本 provider 不引入新的执行路径，也不 import `sandbox_supervisor`。`sandbox_tool`（BaseTool 路径）
-不在本 PR 范围，待后续单独 provider 化。
+本 provider 不引入新的执行路径，也不 import `sandbox_supervisor`。
+
+### sandbox_tool provider（BaseTool 路径）
+
+`SandboxToolProvider(client, *, template_id="neuroagent-default")` 把 `build_sandbox_tools` 产出的
+`sandbox_exec_shell` / `sandbox_exec_python` 经 provider path 暴露。这两个是 LangChain
+`StructuredTool`（非普通 callable），所以采用**最小适配**而非重写：
+
+- **callable**：取工具自身的 underlying coroutine（`tool.coroutine`）—— 与 BaseTool 同一闭包，
+  因此「每会话首次创建 sandbox、之后复用」与 `set_sandbox_context` 的 contextvars 行为原样保留。
+- **schema**：取 BaseTool 自带的 OpenAI schema（`convert_to_openai_function(tool)`）verbatim，
+  所以 spec.schema 与 `registry.tool_defs()` 与 `build_sandbox_tools` 语义 byte-for-byte 一致
+  （不重新反射、不产生 schema 漂移）。
+
+元数据：`category="sandbox"`、`side_effect="external"`、`policy_hint="confirm"`、
+`capabilities=("sandbox","execute","shell"|"python")`，无 `required_secrets`；与 PR1 一致仅作描述，
+执行仍由 `ToolPolicy` / `RiskGate` 把关。**不改** builder 行为、contextvars、sandbox 生命周期，
+也不引入并行执行链。
+
+```python
+from neuroagent.config import AgentSpec, load_agent_from_spec
+from neuroagent.tools import SandboxToolProvider
+
+spec = AgentSpec(
+    name="coder",
+    system_prompt="...",
+    llm_provider="higress",
+    providers=["sandbox"],                                      # 仅贡献候选
+    tools=["sandbox_exec_shell", "sandbox_exec_python"],       # 按名启用
+)
+loaded = load_agent_from_spec(
+    spec,
+    tool_registry=base_registry,
+    llm_registry=llm_registry,
+    tool_providers={"sandbox": SandboxToolProvider(my_sandbox_client)},
+)
+```
 
 ## 开发
 
