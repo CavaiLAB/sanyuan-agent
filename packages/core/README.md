@@ -105,6 +105,32 @@ loaded = load_agent_from_spec(
 )
 ```
 
+### 多模态工具 provider
+
+`MultimodalToolProvider(client)` 产出 4 个 VeADK 风格工具：`image_generate` /
+`image_edit` / `video_generate` / `text_to_speech`。两条边界：
+
+- **不接真实外部 API**：provider 只调用注入的 `MultimodalClient`（Protocol）；商业侧
+  后续注入真实 client（vendor + 凭证），测试注入 fake。harness 不 import
+  `neuroagent_app` / `sandbox_supervisor`、不读 env。
+- **artifact/workspace 返回，绝不裸路径**：每个工具返回 `MultimodalArtifact` 形态
+  （`artifact_id` / `filename` / `content_type` / `download_url` / `sha256` / 可选
+  `workspace_ref`），生成物是一等 artifact。
+
+工具携带 provider metadata：`category="multimodal"`、`side_effect="external"`、
+`artifact_output=True`、`policy_hint="confirm"`，per-tool `capabilities` 与
+`required_secrets`（如 `MODEL_IMAGE_NAME`）。这些 metadata 与 PR1 一致：仅供构建
+`ToolPolicy` / 前端 / 审计**描述用**，不参与执行；`required_secrets` 只**声明**
+env-var 名，本模块**不读取**。
+
+```python
+from neuroagent.tools import MultimodalToolProvider, ToolRegistry, register_provider
+
+registry = ToolRegistry()
+register_provider(registry, MultimodalToolProvider(my_multimodal_client))
+# registry 含 image_generate / image_edit / video_generate / text_to_speech
+```
+
 ## 开发
 
 本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。
