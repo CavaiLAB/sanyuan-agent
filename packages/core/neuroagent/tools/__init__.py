@@ -4,6 +4,14 @@ from neuroagent.tools.artifact_write import build_artifact_write_tool
 from neuroagent.tools.bash import build_bash_tool
 from neuroagent.tools.browser import BrowserSession, CDPClient, build_browser_tools
 from neuroagent.tools.file_ops import build_file_ops_tools
+from neuroagent.tools.provider import (
+    ToolProvider,
+    ToolSpec,
+    register_provider,
+    register_tool_specs,
+    spec_from_callable,
+    specs_from_callables,
+)
 from neuroagent.tools.registry import ToolRegistry
 from neuroagent.tools.sandbox_tool import build_sandbox_tools, set_sandbox_context
 from neuroagent.tools.web_fetch import build_web_fetch_tool
@@ -12,7 +20,9 @@ from neuroagent.tools.web_search import build_web_search_tool
 __all__ = [
     "BrowserSession",
     "CDPClient",
+    "ToolProvider",
     "ToolRegistry",
+    "ToolSpec",
     "build_artifact_write_tool",
     "build_bash_tool",
     "build_browser_tools",
@@ -20,5 +30,9 @@ __all__ = [
     "build_sandbox_tools",
     "build_web_fetch_tool",
     "build_web_search_tool",
+    "register_provider",
+    "register_tool_specs",
     "set_sandbox_context",
+    "spec_from_callable",
+    "specs_from_callables",
 ]
