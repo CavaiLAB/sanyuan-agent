@@ -8,6 +8,7 @@ from typing import Any
 
 from neuroagent.tools.block_detect import detect_block
 from neuroagent.tools.browser.session import BrowserSession
+from neuroagent.tools.provider import ToolSpec, spec_from_callable
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 logger = logging.getLogger(__name__)
@@ -142,3 +143,76 @@ def build_browser_tools(
     ]
     for name, fn in _tools:
         registry.register(name, fn, callable_to_schema(fn))  # type: ignore[arg-type]
+
+
+# Descriptive provider metadata per browser tool (PR7). Per provider.py this is
+# advisory only - it informs policy building / UI / audit and never gates
+# execution. Reads stay read (no hint); page-mutating interactions are write, and
+# the genuinely risky ones (click / type / download) default to confirm.
+_BROWSER_TOOL_META: dict[str, dict[str, Any]] = {
+    "browser_navigate": {"capabilities": ("browser", "navigate"), "side_effect": "write"},
+    "browser_click": {
+        "capabilities": ("browser", "click"),
+        "side_effect": "write",
+        "policy_hint": "confirm",
+    },
+    "browser_type": {
+        "capabilities": ("browser", "type"),
+        "side_effect": "write",
+        "policy_hint": "confirm",
+    },
+    "browser_screenshot": {
+        "capabilities": ("browser", "screenshot"),
+        "side_effect": "read",
+        "artifact_output": True,  # may emit an artifact id
+    },
+    "browser_read_dom": {"capabilities": ("browser", "read"), "side_effect": "read"},
+    "browser_accessibility": {"capabilities": ("browser", "read"), "side_effect": "read"},
+    "browser_download": {
+        "capabilities": ("browser", "download"),
+        "side_effect": "write",
+        "policy_hint": "confirm",  # captures an untrusted download into quarantine
+    },
+    "browser_downloads": {"capabilities": ("browser", "list"), "side_effect": "read"},
+}
+
+
+class BrowserToolProvider:
+    """Thin ToolProvider wrapper over :func:`build_browser_tools` (PR7).
+
+    Yields the existing browser tools as specs with ``category="browser"`` plus
+    per-tool side-effect / policy-hint metadata. It changes **no behavior and no
+    schema**: each tool's callable and its reflected schema come straight from
+    ``build_browser_tools``; only descriptive metadata is attached, and per PR1
+    that metadata never gates execution (``ToolPolicy`` / ``RiskGate`` remain the
+    runtime authority).
+
+    Selectable through the provider path: reference the provider in
+    ``AgentSpec.providers`` and enable individual ``browser_*`` names via
+    ``AgentSpec.tools`` / ``tool_sets``.
+    """
+
+    def __init__(self, session_factory: SessionFactory) -> None:
+        self._session_factory = session_factory
+
+    def provide(self) -> list[ToolSpec]:
+        # Build into a scratch registry, then re-emit the registered callables +
+        # schemas verbatim as specs (schema passed through, never re-derived).
+        scratch = ToolRegistry()
+        build_browser_tools(scratch, self._session_factory)
+        specs: list[ToolSpec] = []
+        for name in scratch.list_tools():
+            meta = _BROWSER_TOOL_META.get(name, {})
+            specs.append(
+                spec_from_callable(
+                    scratch.get(name),
+                    name=name,
+                    schema=scratch.get_schema(name),
+                    category="browser",
+                    capabilities=meta.get("capabilities", ("browser",)),
+                    side_effect=meta.get("side_effect", "write"),
+                    artifact_output=meta.get("artifact_output", False),
+                    policy_hint=meta.get("policy_hint"),
+                )
+            )
+        return specs

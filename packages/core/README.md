@@ -231,6 +231,49 @@ loaded = load_agent_from_spec(
 把关。注意这与 agent 的 `AgentSpec.skills`（把技能注入系统 prompt）是两套机制：前者是一个
 **工具**，让 agent 运行时按需加载技能 prompt。
 
+### 浏览器工具 provider
+
+`BrowserToolProvider(session_factory)` 是对现有 `build_browser_tools` 的**薄包装**：把已有的
+8 个 `browser_*` 工具按 spec 产出，附 `category="browser"` 与 per-tool 风险元数据。它**不改任何
+行为、不改任何 schema** —— callable 与反射 schema 直接取自 `build_browser_tools`，只附描述性
+元数据；与 PR1 一致，元数据不参与执行（`ToolPolicy` / `RiskGate` 仍是运行时权威）。
+
+per-tool 元数据（读保持 read 无 hint；改动页面的交互为 write；真正高风险的 click / type /
+download 默认 `confirm`）：
+
+| 工具 | side_effect | policy_hint |
+|---|---|---|
+| `browser_navigate` | write | - |
+| `browser_click` | write | confirm |
+| `browser_type` | write | confirm |
+| `browser_screenshot` | read（`artifact_output=True`） | - |
+| `browser_read_dom` | read | - |
+| `browser_accessibility` | read | - |
+| `browser_download` | write | confirm |
+| `browser_downloads` | read | - |
+
+经 provider path 声明式选择 —— 在 `AgentSpec.providers` 引用，再用 `AgentSpec.tools` 或
+`tool_sets` 启用单个 `browser_*` 名字：
+
+```python
+from neuroagent.config import AgentSpec, load_agent_from_spec
+from neuroagent.tools import BrowserToolProvider
+
+spec = AgentSpec(
+    name="browser-agent",
+    system_prompt="...",
+    llm_provider="higress",
+    providers=["browser"],                          # 仅贡献候选
+    tools=["browser_navigate", "browser_read_dom"], # 按名启用子集
+)
+loaded = load_agent_from_spec(
+    spec,
+    tool_registry=base_registry,
+    llm_registry=llm_registry,
+    tool_providers={"browser": BrowserToolProvider(my_session_factory)},
+)
+```
+
 ## 开发
 
 本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。
