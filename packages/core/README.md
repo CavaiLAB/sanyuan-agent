@@ -308,6 +308,37 @@ loaded = load_agent_from_spec(
 )
 ```
 
+### Web 工具 provider（web_search + web_fetch）
+
+`WebToolProvider()` 是对现有 `build_web_search_tool` / `build_web_fetch_tool` 的**薄包装**：
+把这两个工具按 spec 产出，附 `category="web"`、`side_effect="read"` 元数据。它**不改任何行为、
+不改任何 schema**（callable 与反射 schema 直接取自两个 builder，schema verbatim 透传），也
+**不引入任何新的 secret / env 行为** —— web_search 的可选 Brave key
+（`NEUROAGENT_WEB_SEARCH_API_KEY`）仍由 builder 按原样读取，本 provider 自身不读 env、不声明
+`required_secrets`。与 PR1 一致，元数据仅作描述，执行仍由 `ToolPolicy` / `RiskGate` 把关。
+
+```python
+from neuroagent.config import AgentSpec, load_agent_from_spec
+from neuroagent.tools import WebToolProvider
+
+spec = AgentSpec(
+    name="web-agent",
+    system_prompt="...",
+    llm_provider="higress",
+    providers=["web"],                      # 仅贡献候选
+    tools=["web_search", "web_fetch"],      # 按名启用
+)
+loaded = load_agent_from_spec(
+    spec,
+    tool_registry=base_registry,
+    llm_registry=llm_registry,
+    tool_providers={"web": WebToolProvider()},
+)
+```
+
+注意 `link_reader`（见上）也属 `category="web"`，但它另起一个 provider（`LinkReaderToolProvider`），
+是 `web_fetch` 之上的批量 fetch+extract 聚合，不在 `WebToolProvider` 内。
+
 ## 开发
 
 本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。

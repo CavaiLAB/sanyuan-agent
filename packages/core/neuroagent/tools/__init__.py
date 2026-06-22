@@ -39,6 +39,7 @@ from neuroagent.tools.provider import (
 from neuroagent.tools.registry import ToolRegistry
 from neuroagent.tools.sandbox_tool import build_sandbox_tools, set_sandbox_context
 from neuroagent.tools.web_fetch import build_web_fetch_tool
+from neuroagent.tools.web_provider import WebToolProvider
 from neuroagent.tools.web_search import build_web_search_tool
 
 __all__ = [
@@ -57,6 +58,7 @@ __all__ = [
     "ToolProvider",
     "ToolRegistry",
     "ToolSpec",
+    "WebToolProvider",
     "build_artifact_write_tool",
     "build_bash_tool",
     "build_browser_tools",
