@@ -146,9 +146,23 @@ Protocol），从不接真实供应商、从不读 secret。商业侧（`neuroag
 - `assemble_agent_tools(..., multimodal_provider=...)` 接收候选 provider，把其 4 个工具
   callable 展开进工具列表；**不传则默认工具列表不变**，生产路径默认不暴露外部生成工具。
 
-**真实供应商 client 与 secret resolver 是 PR5+**。PR4 只把缝接好（Settings → factory →
-fake client → `assemble_agent_tools` → agent → SSE artifact 抽取），不引入任何付费 API
-或外网调用。
+**PR4 只把 fake 缝接好**（Settings → factory → fake client → `assemble_agent_tools` → agent →
+SSE artifact 抽取），不引入任何付费 API 或外网调用。
+
+##### 凭证缝（PR12，仍非 live 接入）
+
+PR12 在 app 层补上**凭证/真实 client 注入缝**，但**不做任何 live vendor 调用**：
+
+- `neuroagent_app.multimodal.MultimodalSecretResolver`（Protocol）+ `EnvSecretResolver`：按
+  **声明的 env-var 名**解析凭证**值**，**绝不**记录值；空名/未设 → `None`。
+- `build_multimodal_provider(settings, *, resolver=None, client_factory=None)`：real 路径
+  （启用且非 fake）只有在**注入 `client_factory`** 时才构建 provider。凭证**值**只经
+  `resolver → client_factory → client` 流动，从不进 Settings/日志/结果/repr。
+- 沿用既有「更安全」工厂风格：无 factory、或 factory 解析不到凭证 → **贡献 0 工具**（返回
+  `None`、INFO 记原因但不含值），生产工具装配永不崩。default off + fake 路径不变。
+- **真实 vendor client 仍是 PR13+**；本 PR 只证明 seam（注入 resolver/factory → 4 工具，
+  无网络）。注：harness 各工具的 `required_secrets`（如 `MODEL_IMAGE_NAME`）实为**模型名** env
+  var（model-vs-secret 命名混淆）；凭证**值**的 env 名属真实 factory（PR13+）职责，本 seam 不写死。
 
 ### link_reader（低风险 fetch+extract 聚合）
 
