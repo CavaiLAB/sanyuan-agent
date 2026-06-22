@@ -131,6 +131,25 @@ register_provider(registry, MultimodalToolProvider(my_multimodal_client))
 # registry 含 image_generate / image_edit / video_generate / text_to_speech
 ```
 
+#### app 注入 seam（PR4，默认关闭）
+
+harness 这一侧只提供**协议 + 工具壳**（`MultimodalToolProvider` + `MultimodalClient`
+Protocol），从不接真实供应商、从不读 secret。商业侧（`neuroagent_app`）的 **PR4** 增加
+注入缝把它接进网关：
+
+- `neuroagent_app.config.Settings` 增加多模态**开关 + 模型名**字段
+  （`multimodal_tools_enabled` / `multimodal_fake_client` / `multimodal_*_model`），
+  **默认全关**；字段只声明启用开关与模型**名**，**绝不**存放或日志 secret VALUE。
+- `neuroagent_app.multimodal.build_multimodal_provider(settings)` 是决策点：只有在
+  **显式启用且选中 fake client** 时才返回 provider（绑定 `FakeMultimodalClient`——
+  确定性 stub artifact、无外网、无 secret 读取）；启用但无 fake → 返回 `None`。
+- `assemble_agent_tools(..., multimodal_provider=...)` 接收候选 provider，把其 4 个工具
+  callable 展开进工具列表；**不传则默认工具列表不变**，生产路径默认不暴露外部生成工具。
+
+**真实供应商 client 与 secret resolver 是 PR5+**。PR4 只把缝接好（Settings → factory →
+fake client → `assemble_agent_tools` → agent → SSE artifact 抽取），不引入任何付费 API
+或外网调用。
+
 ## 开发
 
 本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。
