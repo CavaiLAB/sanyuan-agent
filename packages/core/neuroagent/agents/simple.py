@@ -89,6 +89,37 @@ def _to_tool_def(tool: Callable[..., Any]) -> dict[str, Any]:
     }
 
 
+# Map a LangChain message ``.type`` to its OpenAI ``role``.
+_ROLE_BY_TYPE = {"human": "user", "ai": "assistant", "tool": "tool", "system": "system"}
+
+
+def _to_openai_message(msg: Any) -> dict[str, Any]:
+    """Coerce one state message into an OpenAI-compatible dict for litellm.
+
+    Plain dicts pass through unchanged. LangChain message objects (notably the
+    ``ToolMessage`` the tool executor appends) carry extra fields - a string
+    ``status``, plus ``artifact`` / ``additional_kwargs`` / ``response_metadata``
+    / ``id`` / ``type`` - that litellm's ``GPT3Message`` model rejects (a string
+    ``status`` raises ``1 validation error for GPT3Message / status``). Map them
+    to the minimal OpenAI shape (role / content / tool_call_id / name), dropping
+    everything litellm does not expect.
+    """
+    if isinstance(msg, dict):
+        return msg
+    msg_type = getattr(msg, "type", "") or getattr(msg, "role", "")
+    out: dict[str, Any] = {
+        "role": _ROLE_BY_TYPE.get(msg_type, msg_type or "user"),
+        "content": getattr(msg, "content", ""),
+    }
+    tool_call_id = getattr(msg, "tool_call_id", None)
+    if tool_call_id:
+        out["tool_call_id"] = tool_call_id
+    name = getattr(msg, "name", None)
+    if name:
+        out["name"] = name
+    return out
+
+
 async def _call_llm(
     provider: LLMProvider,
     messages: list[dict[str, str]],
@@ -106,7 +137,11 @@ async def _call_llm(
     *temperature* / *max_tokens* are passed through only when set, so callers
     that omit them keep litellm's defaults (no behaviour change).
     """
-    base_kwargs: dict[str, Any] = {"messages": messages}
+    # Normalize any LangChain message objects (e.g. ToolMessage) into OpenAI
+    # dicts so litellm's GPT3Message model never sees a leaked string ``status``.
+    base_kwargs: dict[str, Any] = {
+        "messages": [_to_openai_message(m) for m in messages]
+    }
     if provider.api_key_env:
         base_kwargs["api_key"] = os.environ.get(provider.api_key_env)
     if provider.api_base:
