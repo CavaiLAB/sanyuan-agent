@@ -3,6 +3,10 @@
 from neuroagent.tools.artifact_write import build_artifact_write_tool
 from neuroagent.tools.bash import build_bash_tool
 from neuroagent.tools.browser import BrowserSession, CDPClient, build_browser_tools
+from neuroagent.tools.execute_skills import (
+    ExecuteSkillsToolProvider,
+    build_execute_skills_tool,
+)
 from neuroagent.tools.file_ops import build_file_ops_tools
 from neuroagent.tools.link_reader import (
     LinkReaderToolProvider,
@@ -29,6 +33,7 @@ from neuroagent.tools.web_search import build_web_search_tool
 __all__ = [
     "BrowserSession",
     "CDPClient",
+    "ExecuteSkillsToolProvider",
     "LinkReaderToolProvider",
     "MultimodalArtifact",
     "MultimodalClient",
@@ -39,6 +44,7 @@ __all__ = [
     "build_artifact_write_tool",
     "build_bash_tool",
     "build_browser_tools",
+    "build_execute_skills_tool",
     "build_file_ops_tools",
     "build_link_reader_tool",
     "build_sandbox_tools",

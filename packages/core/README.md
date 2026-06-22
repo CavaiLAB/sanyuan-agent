@@ -190,6 +190,47 @@ loaded = load_agent_from_spec(
 `capabilities=("link", "read", "extract")`，无 `required_secrets`；与 PR1 一致，这些元数据
 只供 policy 构建 / 前端 / 审计描述，执行仍由 `ToolPolicy` / `RiskGate` 把关。
 
+### execute_skills（按名加载技能 prompt，不执行代码）
+
+`execute_skills` 是 VeADK `execute_skills` 的安全子集：按技能名经
+`SkillRegistry.load_prompt` 取回该技能的 prompt 文本，让 agent 把技能指令拉进上下文。
+三条边界：
+
+- **不执行代码**：不起 shell、不开进程，只读 registry 已持有的 prompt。
+- **不动 app / secret / 签名**：不 import `neuroagent_app`、不读 secret，也不改 skill 签名或
+  trust，只**尊重**已有的 `status` 字段 —— 非 `active` 的技能一律拒绝；pending（未签名）技能
+  本就不会被注册，因此这里也无法加载。
+- **只读**：不 mutate 传入的 `SkillRegistry`。
+
+和其它工具一样两条等价路径：旧 builder `build_execute_skills_tool(registry, skill_registry)`
+（注册名 `execute_skills`），以及 `ExecuteSkillsToolProvider(skill_registry)`，后者可经
+provider path 声明式选择 —— 在 `AgentSpec.providers` 引用、用 `AgentSpec.tools` 或 `tool_sets`
+启用 `execute_skills`：
+
+```python
+from neuroagent.config import AgentSpec, load_agent_from_spec
+from neuroagent.tools import ExecuteSkillsToolProvider
+
+spec = AgentSpec(
+    name="skiller",
+    system_prompt="...",
+    llm_provider="higress",
+    providers=["skills"],         # 仅贡献候选
+    tools=["execute_skills"],     # 启用
+)
+loaded = load_agent_from_spec(
+    spec,
+    tool_registry=base_registry,
+    llm_registry=llm_registry,
+    tool_providers={"skills": ExecuteSkillsToolProvider(my_skill_registry)},
+)
+```
+
+`execute_skills` 的 spec 元数据为 `category="skill"`、`side_effect="read"`、
+`capabilities=("skill", "load")`，无 `required_secrets`；执行仍由 `ToolPolicy` / `RiskGate`
+把关。注意这与 agent 的 `AgentSpec.skills`（把技能注入系统 prompt）是两套机制：前者是一个
+**工具**，让 agent 运行时按需加载技能 prompt。
+
 ## 开发
 
 本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。
