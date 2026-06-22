@@ -164,15 +164,29 @@ class SandboxToolProvider:
     def provide(self) -> list[ToolSpec]:
         # Build once so both tools share the same closure (single sandbox reuse).
         tools = build_sandbox_tools(self._client, template_id=self._template_id)
-        return [
-            spec_from_callable(
-                t.coroutine,
-                name=t.name,
-                schema=convert_to_openai_function(t),
-                category="sandbox",
-                capabilities=_SANDBOX_TOOL_META.get(t.name, ("sandbox", "execute")),
-                side_effect="external",
-                policy_hint="confirm",
+        specs: list[ToolSpec] = []
+        for t in tools:
+            schema = convert_to_openai_function(t)
+            fn = t.coroutine
+            # Carry the BaseTool's OpenAI schema on the callable (same mechanism
+            # as MCP proxies) so the load_agent_from_spec -> build_simple_agent
+            # path - which re-derives the schema from the callable via
+            # _to_tool_def - uses it verbatim instead of reflecting. Needed
+            # because sandbox_tool.py uses `from __future__ import annotations`,
+            # so the coroutine's annotations are strings and reflection would
+            # mistype `timeout` as string and drop its default. fn is freshly
+            # built by build_sandbox_tools, so this affects neither execution nor
+            # the BaseTool (which dispatches via .coroutine, not __tool_schema__).
+            fn.__tool_schema__ = schema  # type: ignore[attr-defined]
+            specs.append(
+                spec_from_callable(
+                    fn,
+                    name=t.name,
+                    schema=schema,
+                    category="sandbox",
+                    capabilities=_SANDBOX_TOOL_META.get(t.name, ("sandbox", "execute")),
+                    side_effect="external",
+                    policy_hint="confirm",
+                )
             )
-            for t in tools
-        ]
+        return specs

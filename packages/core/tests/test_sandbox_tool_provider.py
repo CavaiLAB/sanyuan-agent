@@ -142,6 +142,33 @@ class TestEquivalence:
         assert set(names) == EXPECTED
         assert provider_reg.tool_defs() == legacy_defs
 
+    def test_resolved_callable_carries_basetool_schema_for_build_simple_agent(self) -> None:
+        # The load_agent_from_spec -> build_simple_agent path re-derives each
+        # tool's schema from the resolved callable via _to_tool_def. Because
+        # sandbox_tool.py uses `from __future__ import annotations`, plain
+        # reflection mistypes `timeout` as string and drops its default; the
+        # provider must carry the BaseTool's schema on the callable so the load
+        # path stays equivalent (timeout integer + default 30).
+        from neuroagent.agents.simple import _to_tool_def
+
+        client = _FakeSandboxClient()
+        by_name = {t.name: t for t in build_sandbox_tools(client)}
+        providers = {"sandbox": SandboxToolProvider(client)}
+        spec = _spec(
+            providers=["sandbox"],
+            tools=["sandbox_exec_shell", "sandbox_exec_python"],
+        )
+        resolved = _resolve_tools(spec, ToolRegistry(), None, providers)
+
+        for fn in resolved:
+            expected = convert_to_openai_function(by_name[fn.__name__])
+            assert _to_tool_def(fn)["function"] == expected
+
+        # explicit guard on the previously-lost detail
+        shell = next(fn for fn in resolved if fn.__name__ == "sandbox_exec_shell")
+        timeout = _to_tool_def(shell)["function"]["parameters"]["properties"]["timeout"]
+        assert timeout == {"default": 30, "type": "integer"}
+
 
 # ---------------------------------------------------------------------------
 # Behavior over a fake client: create once + reuse, outputs unchanged, context
