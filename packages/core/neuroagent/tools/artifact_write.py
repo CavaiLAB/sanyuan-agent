@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from neuroagent.artifacts.client import ArtifactRef, StorageArtifactClient
+from neuroagent.tools.provider import ToolSpec, spec_from_callable
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 ArtifactWriteTool = Callable[[str, str, str], Awaitable[dict[str, str]]]
@@ -47,3 +48,38 @@ def build_artifact_write_tool(
         callable_to_schema(artifact_write),
     )
     return artifact_write
+
+
+class ArtifactWriteToolProvider:
+    """Thin ToolProvider wrapper over :func:`build_artifact_write_tool`.
+
+    Yields the existing ``artifact_write`` tool as a spec with descriptive
+    metadata (``category="artifact"``, ``side_effect="write"``,
+    ``artifact_output=True``, ``policy_hint="confirm"``). It changes no behavior
+    and no schema: the callable and its reflected schema come straight from the
+    builder; per PR1 the metadata never gates execution.
+
+    Selectable through the provider path: reference the provider in
+    ``AgentSpec.providers`` and enable ``"artifact_write"`` via ``AgentSpec.tools``
+    / ``tool_sets``.
+    """
+
+    def __init__(self, client: StorageArtifactClient, *, tenant_id: str) -> None:
+        self._client = client
+        self._tenant_id = tenant_id
+
+    def provide(self) -> list[ToolSpec]:
+        scratch = ToolRegistry()
+        build_artifact_write_tool(scratch, self._client, tenant_id=self._tenant_id)
+        return [
+            spec_from_callable(
+                scratch.get("artifact_write"),
+                name="artifact_write",
+                schema=scratch.get_schema("artifact_write"),
+                category="artifact",
+                capabilities=("artifact", "write"),
+                side_effect="write",
+                artifact_output=True,
+                policy_hint="confirm",
+            )
+        ]

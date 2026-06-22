@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from neuroagent.sandbox.abc import ISandboxProvider, SandboxSession
+from neuroagent.tools.provider import ToolSpec, spec_from_callable
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 
@@ -71,3 +72,58 @@ def build_file_ops_tools(
         )
 
     return tools
+
+
+# Descriptive provider metadata per file op. Reads (read_file / list_dir) stay
+# read with no hint; mutations (write_file / upload_file) are write + confirm.
+_FILE_OPS_META: dict[str, dict[str, Any]] = {
+    "read_file": {"capabilities": ("file", "read"), "side_effect": "read"},
+    "list_dir": {"capabilities": ("file", "list"), "side_effect": "read"},
+    "write_file": {
+        "capabilities": ("file", "write"),
+        "side_effect": "write",
+        "policy_hint": "confirm",
+    },
+    "upload_file": {
+        "capabilities": ("file", "upload"),
+        "side_effect": "write",
+        "policy_hint": "confirm",
+    },
+}
+
+
+class FileOpsToolProvider:
+    """Thin ToolProvider wrapper over :func:`build_file_ops_tools`.
+
+    Yields the existing file-op tools (read_file / write_file / list_dir /
+    upload_file) as specs with ``category="filesystem"`` plus per-tool metadata.
+    It changes no behavior and no schema: each callable and its reflected schema
+    come straight from the builder; per PR1 the metadata never gates execution.
+
+    Selectable through the provider path: reference the provider in
+    ``AgentSpec.providers`` and enable individual file-op names via
+    ``AgentSpec.tools`` / ``tool_sets``.
+    """
+
+    def __init__(self, provider: ISandboxProvider, session: SandboxSession) -> None:
+        self._provider = provider
+        self._session = session
+
+    def provide(self) -> list[ToolSpec]:
+        scratch = ToolRegistry()
+        build_file_ops_tools(self._provider, self._session, scratch)
+        specs: list[ToolSpec] = []
+        for name in scratch.list_tools():
+            meta = _FILE_OPS_META.get(name, {})
+            specs.append(
+                spec_from_callable(
+                    scratch.get(name),
+                    name=name,
+                    schema=scratch.get_schema(name),
+                    category="filesystem",
+                    capabilities=meta.get("capabilities", ("file",)),
+                    side_effect=meta.get("side_effect", "read"),
+                    policy_hint=meta.get("policy_hint"),
+                )
+            )
+        return specs

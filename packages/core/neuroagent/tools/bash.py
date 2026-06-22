@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from neuroagent.sandbox.abc import ISandboxProvider, SandboxSession
+from neuroagent.tools.provider import ToolSpec, spec_from_callable
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 
@@ -46,3 +47,38 @@ def build_bash_tool(
         registry.register("bash", tool_bash, callable_to_schema(tool_bash))
 
     return tool_bash
+
+
+class BashToolProvider:
+    """Thin ToolProvider wrapper over :func:`build_bash_tool`.
+
+    Yields the existing ``bash`` tool as a spec with descriptive metadata
+    (``category="sandbox"``, ``side_effect="external"``, ``policy_hint="confirm"``).
+    It changes no behavior and no schema: the callable and its reflected schema
+    come straight from the builder (the registry name stays ``"bash"`` while the
+    schema's function name stays ``"tool_bash"``, exactly as the legacy path); per
+    PR1 the metadata never gates execution.
+
+    Selectable through the provider path: reference the provider in
+    ``AgentSpec.providers`` and enable ``"bash"`` via ``AgentSpec.tools`` /
+    ``tool_sets``.
+    """
+
+    def __init__(self, provider: ISandboxProvider, session: SandboxSession) -> None:
+        self._provider = provider
+        self._session = session
+
+    def provide(self) -> list[ToolSpec]:
+        scratch = ToolRegistry()
+        build_bash_tool(self._provider, self._session, scratch)
+        return [
+            spec_from_callable(
+                scratch.get("bash"),
+                name="bash",
+                schema=scratch.get_schema("bash"),
+                category="sandbox",
+                capabilities=("sandbox", "execute"),
+                side_effect="external",
+                policy_hint="confirm",
+            )
+        ]

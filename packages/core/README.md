@@ -339,6 +339,53 @@ loaded = load_agent_from_spec(
 注意 `link_reader`（见上）也属 `category="web"`，但它另起一个 provider（`LinkReaderToolProvider`），
 是 `web_fetch` 之上的批量 fetch+extract 聚合，不在 `WebToolProvider` 内。
 
+### workspace-ops provider（artifact_write / file_ops / bash）
+
+三个对现有 builder 的**薄包装**，把工作区/沙箱类工具按 provider path 暴露。均**不改行为、不改
+schema**（callable 与反射 schema 直接取自 builder，schema verbatim 透传），元数据仅作描述、
+不参与执行；执行仍由 `ToolPolicy` / `RiskGate` 把关。
+
+- `ArtifactWriteToolProvider(client, *, tenant_id)` 包装 `build_artifact_write_tool`，产出
+  `artifact_write`。
+- `FileOpsToolProvider(provider, session)` 包装 `build_file_ops_tools`，产出
+  `read_file` / `write_file` / `list_dir` / `upload_file`。
+- `BashToolProvider(provider, session)` 包装 `build_bash_tool`，产出 `bash`（保留 legacy 细节：
+  registry 名 `bash`、schema 函数名 `tool_bash`）。
+
+| 工具 | category | side_effect | policy_hint |
+|---|---|---|---|
+| `artifact_write` | artifact（`artifact_output=True`） | write | confirm |
+| `read_file` / `list_dir` | filesystem | read | - |
+| `write_file` / `upload_file` | filesystem | write | confirm |
+| `bash` | sandbox | external | confirm |
+
+```python
+from neuroagent.config import AgentSpec, load_agent_from_spec
+from neuroagent.tools import ArtifactWriteToolProvider, BashToolProvider, FileOpsToolProvider
+
+spec = AgentSpec(
+    name="ops",
+    system_prompt="...",
+    llm_provider="higress",
+    providers=["artifact", "files", "sh"],            # 仅贡献候选
+    tools=["artifact_write", "read_file", "bash"],    # 按名启用子集
+)
+loaded = load_agent_from_spec(
+    spec,
+    tool_registry=base_registry,
+    llm_registry=llm_registry,
+    tool_providers={
+        "artifact": ArtifactWriteToolProvider(artifact_client, tenant_id="t1"),
+        "files": FileOpsToolProvider(sandbox_provider, sandbox_session),
+        "sh": BashToolProvider(sandbox_provider, sandbox_session),
+    },
+)
+```
+
+注意：`bash` / 文件类工具需要 `ISandboxProvider` + 会话注入，仍经 Sandbox Supervisor 边界执行，
+本 provider 不引入新的执行路径，也不 import `sandbox_supervisor`。`sandbox_tool`（BaseTool 路径）
+不在本 PR 范围，待后续单独 provider 化。
+
 ## 开发
 
 本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。

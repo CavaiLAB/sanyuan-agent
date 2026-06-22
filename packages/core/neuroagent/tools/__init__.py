@@ -1,7 +1,10 @@
 """Tool builders for agent-sandbox interaction."""
 
-from neuroagent.tools.artifact_write import build_artifact_write_tool
-from neuroagent.tools.bash import build_bash_tool
+from neuroagent.tools.artifact_write import (
+    ArtifactWriteToolProvider,
+    build_artifact_write_tool,
+)
+from neuroagent.tools.bash import BashToolProvider, build_bash_tool
 from neuroagent.tools.browser import (
     BrowserSession,
     BrowserToolProvider,
@@ -12,7 +15,7 @@ from neuroagent.tools.execute_skills import (
     ExecuteSkillsToolProvider,
     build_execute_skills_tool,
 )
-from neuroagent.tools.file_ops import build_file_ops_tools
+from neuroagent.tools.file_ops import FileOpsToolProvider, build_file_ops_tools
 from neuroagent.tools.link_reader import (
     LinkReaderToolProvider,
     build_link_reader_tool,
@@ -43,11 +46,14 @@ from neuroagent.tools.web_provider import WebToolProvider
 from neuroagent.tools.web_search import build_web_search_tool
 
 __all__ = [
+    "ArtifactWriteToolProvider",
+    "BashToolProvider",
     "BrowserSession",
     "BrowserToolProvider",
     "CDPClient",
     "ExecuteSkillsToolProvider",
     "FakeMobileUseClient",
+    "FileOpsToolProvider",
     "LinkReaderToolProvider",
     "MobileUseClient",
     "MobileUseResult",
