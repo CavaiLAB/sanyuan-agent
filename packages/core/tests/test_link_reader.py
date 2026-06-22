@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from neuroagent.config import AgentSpec, load_agent_from_spec
 from neuroagent.config.loader import _resolve_tools
 from neuroagent.models import LLMProvider, LLMProviderRegistry
@@ -109,6 +110,31 @@ class TestBehavior:
         assert result["links"][0] == {"url": "https://good.test", "content": "ok"}
         assert result["links"][1] == {"url": "https://bad.test", "error": "boom"}
         assert result["count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# max_urls validation (fail fast on a non-positive cap)
+# ---------------------------------------------------------------------------
+
+
+class TestMaxUrlsValidation:
+    @pytest.mark.parametrize("bad", [0, -1, -10])
+    def test_builder_rejects_non_positive(self, bad: int) -> None:
+        with pytest.raises(ValueError, match="max_urls must be >= 1"):
+            build_link_reader_tool(ToolRegistry(), fetch=_FakeFetch(), max_urls=bad)
+
+    @pytest.mark.parametrize("bad", [0, -1, -10])
+    def test_provider_rejects_non_positive_at_construction(self, bad: int) -> None:
+        with pytest.raises(ValueError, match="max_urls must be >= 1"):
+            LinkReaderToolProvider(fetch=_FakeFetch(), max_urls=bad)
+
+    async def test_min_valid_cap_of_one_works(self) -> None:
+        fetch = _FakeFetch()
+        tool = build_link_reader_tool(ToolRegistry(), fetch=fetch, max_urls=1)
+        result = await tool("https://a.test https://b.test")
+        assert fetch.calls == ["https://a.test"]  # second dropped at the cap
+        assert result["count"] == 1
+        assert result["truncated"] is True
 
 
 # ---------------------------------------------------------------------------

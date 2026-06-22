@@ -40,6 +40,13 @@ _DEFAULT_MAX_URLS = 10
 _SPLIT_RE = re.compile(r"[\s,]+")
 
 
+def _check_max_urls(max_urls: int) -> int:
+    """Reject a non-positive cap (it would disable the tool entirely)."""
+    if max_urls < 1:
+        raise ValueError(f"max_urls must be >= 1, got {max_urls}")
+    return max_urls
+
+
 def _parse_urls(urls: str, max_urls: int) -> tuple[list[str], bool]:
     """Split a free-form url list, dedupe (order-preserving), cap at *max_urls*.
 
@@ -94,6 +101,7 @@ def build_link_reader_tool(
     ``link_reader`` and the production web_fetch registration is untouched).
     Injecting fetch is for tests or a custom egress policy.
     """
+    _check_max_urls(max_urls)
     if fetch is None:
         fetch = build_web_fetch_tool(ToolRegistry(), timeout=timeout, max_bytes=max_bytes)
     tool = _make_link_reader(fetch, max_urls)
@@ -119,7 +127,7 @@ class LinkReaderToolProvider:
         max_bytes: int = 2_000_000,
     ) -> None:
         self._fetch = fetch
-        self._max_urls = max_urls
+        self._max_urls = _check_max_urls(max_urls)
         self._timeout = timeout
         self._max_bytes = max_bytes
 
