@@ -150,6 +150,46 @@ Protocol），从不接真实供应商、从不读 secret。商业侧（`neuroag
 fake client → `assemble_agent_tools` → agent → SSE artifact 抽取），不引入任何付费 API
 或外网调用。
 
+### link_reader（低风险 fetch+extract 聚合）
+
+`link_reader` 是建立在现有 `web_fetch` 原语之上的低风险工具：一次读取一小批 URL，逐个
+经 `web_fetch`（httpx GET + trafilatura 抽取 + SSRF 防护 + 软封锁检测）取回并抽取正文，
+单条链接失败只记在该条目的 `error` 字段、不拖垮整批。三个低风险性质：
+
+- **不新增出网面、不接任何 vendor API**：每个 URL 都走 `web_fetch`，所以 SSRF 防护与
+  content-type 规则原样继承；本模块不读 secret，也不 import `neuroagent_app`。
+- **扇出有上限**：URL 列表去重并截断（默认 10 条），超出部分用 `truncated: true` 告知模型。
+- **不改 `web_fetch` 行为**：默认 fetch 原语注册进一个临时 registry，调用方的 registry 只拿到
+  `link_reader`，生产 `web_fetch` 注册不受影响。
+
+和其它工具一样有两条等价路径：旧 builder `build_link_reader_tool(registry, ...)`（注册名
+`link_reader`），以及 `LinkReaderToolProvider`，后者可经 provider path 声明式选择 —— 在
+`AgentSpec.providers` 引用 provider，再用 `AgentSpec.tools` 或 `tool_sets` 启用
+`link_reader`：
+
+```python
+from neuroagent.config import AgentSpec, load_agent_from_spec
+from neuroagent.tools import LinkReaderToolProvider
+
+spec = AgentSpec(
+    name="reader",
+    system_prompt="...",
+    llm_provider="higress",
+    providers=["links"],     # 仅贡献候选
+    tools=["link_reader"],   # 启用
+)
+loaded = load_agent_from_spec(
+    spec,
+    tool_registry=base_registry,
+    llm_registry=llm_registry,
+    tool_providers={"links": LinkReaderToolProvider()},
+)
+```
+
+`link_reader` 的 spec 元数据为 `category="web"`、`side_effect="read"`、
+`capabilities=("link", "read", "extract")`，无 `required_secrets`；与 PR1 一致，这些元数据
+只供 policy 构建 / 前端 / 审计描述，执行仍由 `ToolPolicy` / `RiskGate` 把关。
+
 ## 开发
 
 本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。
