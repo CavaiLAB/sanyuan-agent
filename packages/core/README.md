@@ -274,6 +274,40 @@ loaded = load_agent_from_spec(
 )
 ```
 
+### mobile_use provider（设备操作 shell）
+
+`MobileUseToolProvider(client)` 产出单个 `mobile_use` 工具，按自然语言指令驱动移动设备/App。
+与多模态 provider 同样两条边界：
+
+- **harness 内不接真实设备 / App / 桌面 / agent-link / 网络**：provider 只调用注入的
+  `MobileUseClient`（Protocol）；真实 client（设备农场 / agent-link + 凭证）后续补，测试注入
+  `FakeMobileUseClient`。harness 不 import `neuroagent_app` / `sandbox_supervisor`、不读 secret。
+- **结构化返回，绝不裸设备句柄/路径**：工具返回 `MobileUseResult` 形态
+  （`status` / `summary` / `actions` / `app` / `session_id`，`session_id` 是逻辑会话标识而非句柄）。
+
+工具元数据：`category="mobile"`、`side_effect="external"`、`policy_hint="confirm"`，
+`capabilities=("mobile", "operate")`；本 shell **不声明 `required_secrets`**（凭证声明随真实
+client 一起来）。与 PR1 一致，元数据仅作描述，执行仍由 `ToolPolicy` / `RiskGate` 把关。
+
+```python
+from neuroagent.config import AgentSpec, load_agent_from_spec
+from neuroagent.tools import FakeMobileUseClient, MobileUseToolProvider
+
+spec = AgentSpec(
+    name="mobile-agent",
+    system_prompt="...",
+    llm_provider="higress",
+    providers=["mobile"],     # 仅贡献候选
+    tools=["mobile_use"],     # 启用
+)
+loaded = load_agent_from_spec(
+    spec,
+    tool_registry=base_registry,
+    llm_registry=llm_registry,
+    tool_providers={"mobile": MobileUseToolProvider(FakeMobileUseClient())},
+)
+```
+
 ## 开发
 
 本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。

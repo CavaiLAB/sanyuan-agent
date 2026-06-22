@@ -17,6 +17,12 @@ from neuroagent.tools.link_reader import (
     LinkReaderToolProvider,
     build_link_reader_tool,
 )
+from neuroagent.tools.mobile_use import (
+    FakeMobileUseClient,
+    MobileUseClient,
+    MobileUseResult,
+    MobileUseToolProvider,
+)
 from neuroagent.tools.multimodal import (
     MultimodalArtifact,
     MultimodalClient,
@@ -40,7 +46,11 @@ __all__ = [
     "BrowserToolProvider",
     "CDPClient",
     "ExecuteSkillsToolProvider",
+    "FakeMobileUseClient",
     "LinkReaderToolProvider",
+    "MobileUseClient",
+    "MobileUseResult",
+    "MobileUseToolProvider",
     "MultimodalArtifact",
     "MultimodalClient",
     "MultimodalToolProvider",
