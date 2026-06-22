@@ -72,6 +72,39 @@ provider path 与 `build_simple_agent(tools=[callable])` 旧路径结果等价�
 只要实现 `provide() -> list[ToolSpec]`，即可用 `register_provider(registry, provider)`
 批量注册。
 
+### AgentSpec 的 `tool_sets` / `providers`（声明式选择）
+
+`AgentSpec` 新增两个可选字段，配合 `load_agent_from_spec(..., tool_sets=..., tool_providers=...)`
+做声明式工具选择：
+
+- **`providers`**：引用的 `ToolProvider` 只把其 `provide()` 的 `ToolSpec` 加入**候选空间**，
+  *不*自动启用任何工具。
+- **最终启用工具** = `tool_sets` 按声明顺序展开 + `tools`，**稳定去重**（首次出现胜，重复不报错）。
+- 解析时 **base `ToolRegistry` 优先**于 provider 候选；若 provider 候选名与 base registry
+  或另一个 provider 候选**同名冲突**，抛 `ValueError`（避免 MCP/builtin/provider 静默覆盖）。
+- 未知 provider / 未知 tool set / 展开后未知工具名，均抛 `ValueError`。
+- **不 mutate** 传入的 `ToolRegistry`——候选只在加载期解析，绝不注册进传入的 registry。
+
+```python
+from neuroagent.config import AgentSpec, load_agent_from_spec
+
+spec = AgentSpec(
+    name="researcher",
+    system_prompt="...",
+    llm_provider="higress",
+    providers=["web"],            # 仅贡献候选
+    tool_sets=["search_bundle"],  # 展开后并入启用集
+    tools=["web_search"],         # 与 set 重复的名字会被稳定去重
+)
+loaded = load_agent_from_spec(
+    spec,
+    tool_registry=base_registry,
+    llm_registry=llm_registry,
+    tool_sets={"search_bundle": ["web_search", "web_fetch"]},
+    tool_providers={"web": my_web_provider},
+)
+```
+
 ## 开发
 
 本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。

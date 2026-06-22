@@ -20,8 +20,10 @@ from neuroagent.config import (
     load_agent_from_spec,
     load_agent_from_yaml,
 )
+from neuroagent.config.loader import _resolve_tools
 from neuroagent.models import LLMProvider, LLMProviderRegistry
 from neuroagent.skills.registry import Skill, SkillRegistry
+from neuroagent.tools.provider import ToolSpec, spec_from_callable
 from neuroagent.tools.registry import ToolRegistry
 from pydantic import ValidationError
 
@@ -97,8 +99,26 @@ class TestAgentSpec:
         assert spec.temperature == 0.7
         assert spec.max_tokens == 4096
         assert spec.tools == []
+        assert spec.tool_sets == []
+        assert spec.providers == []
         assert spec.skills == []
         assert spec.max_iterations == 10
+
+    def test_tool_sets_and_providers_preserve_order(self) -> None:
+        spec = AgentSpec(
+            **_minimal_dict(
+                tool_sets=["web", "sandbox"],
+                providers=["mcp_wx", "multimodal"],
+            )
+        )
+        assert spec.tool_sets == ["web", "sandbox"]
+        assert spec.providers == ["mcp_wx", "multimodal"]
+
+    def test_tool_sets_and_providers_must_be_lists(self) -> None:
+        with pytest.raises(ValidationError):
+            AgentSpec(**_minimal_dict(tool_sets="web"))  # must be a list
+        with pytest.raises(ValidationError):
+            AgentSpec(**_minimal_dict(providers="mcp_wx"))  # must be a list
 
     @pytest.mark.parametrize("missing", ["name", "system_prompt", "llm_provider"])
     def test_missing_required_raises(self, missing: str) -> None:
@@ -164,9 +184,7 @@ class TestLoaderConstruction:
         self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
     ) -> None:
         spec = AgentSpec(**_minimal_dict(tools=["echo"]))
-        loaded = load_agent_from_spec(
-            spec, tool_registry=tool_registry, llm_registry=llm_registry
-        )
+        loaded = load_agent_from_spec(spec, tool_registry=tool_registry, llm_registry=llm_registry)
         assert isinstance(loaded, LoadedAgent)
         assert loaded.spec is spec
         assert loaded.graph is not None
@@ -175,9 +193,7 @@ class TestLoaderConstruction:
         self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
     ) -> None:
         spec = AgentSpec(**_minimal_dict())
-        loaded = load_agent_from_spec(
-            spec, tool_registry=tool_registry, llm_registry=llm_registry
-        )
+        loaded = load_agent_from_spec(spec, tool_registry=tool_registry, llm_registry=llm_registry)
         msgs = loaded.initial_messages("hello")
         assert msgs[0] == {"role": "system", "content": "You are a careful researcher."}
         assert msgs[-1] == {"role": "user", "content": "hello"}
@@ -186,9 +202,7 @@ class TestLoaderConstruction:
         self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
     ) -> None:
         spec = AgentSpec(name="a", system_prompt="", llm_provider="higress")
-        loaded = load_agent_from_spec(
-            spec, tool_registry=tool_registry, llm_registry=llm_registry
-        )
+        loaded = load_agent_from_spec(spec, tool_registry=tool_registry, llm_registry=llm_registry)
         msgs = loaded.initial_messages("hi")
         assert msgs == [{"role": "user", "content": "hi"}]
 
@@ -215,9 +229,7 @@ class TestLoaderConstruction:
                 max_tokens=512,
             )
         )
-        loaded = load_agent_from_spec(
-            spec, tool_registry=tool_registry, llm_registry=llm_registry
-        )
+        loaded = load_agent_from_spec(spec, tool_registry=tool_registry, llm_registry=llm_registry)
 
         state = {
             "messages": loaded.initial_messages("hi"),
@@ -256,9 +268,7 @@ class TestLoaderConstruction:
         monkeypatch.setattr(litellm, "acompletion", acompletion)
 
         spec = AgentSpec(**_minimal_dict())  # model="" → inherit
-        loaded = load_agent_from_spec(
-            spec, tool_registry=tool_registry, llm_registry=llm_registry
-        )
+        loaded = load_agent_from_spec(spec, tool_registry=tool_registry, llm_registry=llm_registry)
         state = {
             "messages": loaded.initial_messages("hi"),
             "next_action": None,
@@ -313,3 +323,164 @@ class TestYamlLoader:
         path.write_text("name: x\n")  # missing required fields
         with pytest.raises(ValidationError):
             load_agent_from_yaml(path)
+
+
+# ---------------------------------------------------------------------------
+# load_agent_from_spec — tool_sets / providers selection (PR2)
+# ---------------------------------------------------------------------------
+
+
+def web_search(query: str) -> str:
+    """Search the web (fake)."""
+    return query
+
+
+def image_gen(prompt: str) -> str:
+    """Generate an image (fake)."""
+    return prompt
+
+
+class _Provider:
+    """Minimal ToolProvider: yields a fixed list of specs."""
+
+    def __init__(self, specs: list[ToolSpec]) -> None:
+        self._specs = specs
+
+    def provide(self) -> list[ToolSpec]:
+        return self._specs
+
+
+def _provider(*fns: Any) -> _Provider:
+    return _Provider([spec_from_callable(fn) for fn in fns])
+
+
+class TestLoaderToolSelection:
+    def test_provider_candidate_not_auto_enabled(
+        self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
+    ) -> None:
+        """A referenced provider whose tools aren't selected enables nothing."""
+        providers = {"web": _provider(web_search)}
+        spec = AgentSpec(**_minimal_dict(providers=["web"]))  # nothing selected
+
+        # Builds without error …
+        loaded = load_agent_from_spec(
+            spec,
+            tool_registry=tool_registry,
+            llm_registry=llm_registry,
+            tool_providers=providers,
+        )
+        assert loaded.graph is not None
+        # … and resolves to zero enabled tools (no auto-enable).
+        assert _resolve_tools(spec, tool_registry, None, providers) == []
+
+    def test_provider_tool_selected_via_tools(
+        self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
+    ) -> None:
+        providers = {"web": _provider(web_search)}
+        spec = AgentSpec(**_minimal_dict(providers=["web"], tools=["web_search"]))
+
+        resolved = _resolve_tools(spec, tool_registry, None, providers)
+        assert [t.__name__ for t in resolved] == ["web_search"]
+
+        loaded = load_agent_from_spec(
+            spec,
+            tool_registry=tool_registry,
+            llm_registry=llm_registry,
+            tool_providers=providers,
+        )
+        assert loaded.graph is not None
+
+    def test_tool_set_expands_with_stable_dedup(self, tool_registry: ToolRegistry) -> None:
+        providers = {"p": _provider(web_search, image_gen)}
+        sets = {"bundle": ["web_search", "image_gen"]}
+        spec = AgentSpec(
+            **_minimal_dict(
+                providers=["p"],
+                tool_sets=["bundle"],
+                # web_search duplicates the set; echo is a base-registry tool.
+                tools=["web_search", "echo"],
+            )
+        )
+
+        resolved = _resolve_tools(spec, tool_registry, sets, providers)
+        # tool_sets (in order) then tools, first occurrence wins.
+        assert [t.__name__ for t in resolved] == ["web_search", "image_gen", "echo"]
+
+    def test_unknown_provider_raises(
+        self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
+    ) -> None:
+        spec = AgentSpec(**_minimal_dict(providers=["ghost"]))
+        with pytest.raises(ValueError, match="unknown provider"):
+            load_agent_from_spec(
+                spec,
+                tool_registry=tool_registry,
+                llm_registry=llm_registry,
+                tool_providers={},
+            )
+
+    def test_unknown_tool_set_raises(
+        self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
+    ) -> None:
+        spec = AgentSpec(**_minimal_dict(tool_sets=["ghost"]))
+        with pytest.raises(ValueError, match="unknown tool set"):
+            load_agent_from_spec(
+                spec,
+                tool_registry=tool_registry,
+                llm_registry=llm_registry,
+                tool_sets={},
+            )
+
+    def test_unknown_expanded_tool_raises(
+        self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
+    ) -> None:
+        spec = AgentSpec(**_minimal_dict(tool_sets=["bundle"]))
+        with pytest.raises(ValueError, match="ghost"):
+            load_agent_from_spec(
+                spec,
+                tool_registry=tool_registry,
+                llm_registry=llm_registry,
+                tool_sets={"bundle": ["ghost"]},
+            )
+
+    def test_provider_base_conflict_raises(
+        self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
+    ) -> None:
+        """A provider candidate may not shadow a base-registry tool name."""
+        # base registry already has "echo"; provider exposes another "echo".
+        clashing = _Provider([spec_from_callable(web_search, name="echo")])
+        spec = AgentSpec(**_minimal_dict(providers=["p"]))
+        with pytest.raises(ValueError, match="conflicts with a base registry tool"):
+            load_agent_from_spec(
+                spec,
+                tool_registry=tool_registry,
+                llm_registry=llm_registry,
+                tool_providers={"p": clashing},
+            )
+
+    def test_provider_provider_conflict_raises(
+        self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
+    ) -> None:
+        p1 = _Provider([spec_from_callable(web_search, name="dup")])
+        p2 = _Provider([spec_from_callable(image_gen, name="dup")])
+        spec = AgentSpec(**_minimal_dict(providers=["a", "b"]))
+        with pytest.raises(ValueError, match="another provider candidate"):
+            load_agent_from_spec(
+                spec,
+                tool_registry=tool_registry,
+                llm_registry=llm_registry,
+                tool_providers={"a": p1, "b": p2},
+            )
+
+    def test_does_not_mutate_tool_registry(
+        self, tool_registry: ToolRegistry, llm_registry: LLMProviderRegistry
+    ) -> None:
+        before = set(tool_registry.list_tools())
+        providers = {"web": _provider(web_search)}
+        spec = AgentSpec(**_minimal_dict(providers=["web"], tools=["web_search"]))
+        load_agent_from_spec(
+            spec,
+            tool_registry=tool_registry,
+            llm_registry=llm_registry,
+            tool_providers=providers,
+        )
+        assert set(tool_registry.list_tools()) == before  # candidate not registered
