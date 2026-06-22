@@ -156,14 +156,20 @@ class SandboxToolProvider:
     """
 
     def __init__(
-        self, client: SandboxClientProto, *, template_id: str = "neuroagent-default"
+        self, client: SandboxClientProto, *, template_id: str | None = None
     ) -> None:
         self._client = client
+        # None defers to build_sandbox_tools' own default template, so the default
+        # template name is spelled in exactly one place (the builder).
         self._template_id = template_id
 
     def provide(self) -> list[ToolSpec]:
         # Build once so both tools share the same closure (single sandbox reuse).
-        tools = build_sandbox_tools(self._client, template_id=self._template_id)
+        # None -> use the builder default; an explicit template_id passes through.
+        if self._template_id is None:
+            tools = build_sandbox_tools(self._client)
+        else:
+            tools = build_sandbox_tools(self._client, template_id=self._template_id)
         specs: list[ToolSpec] = []
         for t in tools:
             schema = convert_to_openai_function(t)

@@ -387,8 +387,9 @@ loaded = load_agent_from_spec(
 
 ### sandbox_tool provider（BaseTool 路径）
 
-`SandboxToolProvider(client, *, template_id="neuroagent-default")` 把 `build_sandbox_tools` 产出的
-`sandbox_exec_shell` / `sandbox_exec_python` 经 provider path 暴露。这两个是 LangChain
+`SandboxToolProvider(client, *, template_id=None)` 把 `build_sandbox_tools` 产出的
+`sandbox_exec_shell` / `sandbox_exec_python` 经 provider path 暴露（`template_id=None` 时沿用
+`build_sandbox_tools` 自身的默认模板，默认模板名只在 builder 一处出现；显式传入则透传）。这两个是 LangChain
 `StructuredTool`（非普通 callable），所以采用**最小适配**而非重写：
 
 - **callable**：取工具自身的 underlying coroutine（`tool.coroutine`）—— 与 BaseTool 同一闭包，
