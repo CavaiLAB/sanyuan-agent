@@ -169,17 +169,32 @@ PR12 在 app 层补上**凭证/真实 client 注入缝**，但**不做任何 liv
 PR13 在 app 层加 `neuroagent_app.multimodal.ArkMultimodalClient`（实现 harness `MultimodalClient`）
 + `make_ark_client_factory(...)`，但**不做任何 live/付费调用、不接生产默认线**：
 
-- **transport 注入**：所有 HTTP 走注入的 `ArkTransport`（`post_json` / `get_bytes`），测试不触网；
-  生产 router 默认不注入 factory，故此路径默认不跑。
+- **transport 注入**：所有 HTTP 走注入的 `ArkTransport`（`post_json` / `get_json` / `get_bytes`），
+  测试不触网；生产 router 默认不注入 factory，故此路径默认不跑。
 - **凭证安全**：api_key 由 `make_ark_client_factory` 经 `MultimodalSecretResolver` 解析声明 env 名
-  `MULTIMODAL_ARK_API_KEY`（缺失 → 工厂返回 `None`，real 模式降级 0 工具）；值仅进 Authorization
-  头交给 transport，**绝不**入 Settings/repr/日志/结果。
+  `MULTIMODAL_ARK_API_KEY`（缺失 → 工厂返回 `None`，real 模式降级 0 工具）；值仅进 Ark API 调用
+  （`post_json` / `get_json`）的 Authorization 头，**不**进 vendor 资产 `get_bytes`，**绝不**入
+  Settings/repr/日志/结果。
 - **artifact 纪律**：每个生成物（b64 内联或 URL 取回的 bytes）都经注入 `artifact_client.create_artifact`
   落盘，返回 `MultimodalArtifact`（artifact 引用），**绝不**裸路径或只给外部 URL。
 - **接线方式**：`build_multimodal_provider(settings, resolver=..., client_factory=make_ark_client_factory(tenant_id=..., artifact_client=..., transport=...))`。
 - **落盘 content-type**：自 **PR14** 起 harness `StorageArtifactClient` allow-list 已包含 `video/`·`audio/`
   （连同既有 `text/`·`image/`·`application/json`·`application/pdf`），故视频/音频生成物可落盘；
   `application/octet-stream` 等任意 `application/*` 二进制仍拒绝。
+
+###### PR15 image/video shape 对齐（仍非 live、无生产默认线）
+
+PR15 把 image/video 请求响应形态对齐官方 Ark/ModelArk 文档（仅作 shape 参照，不发起 live 调用）：
+
+- **image**：`POST /api/v3/images/generations`（OpenAI 兼容；edit 走 image-to-image，body 带 `image`
+  引用）；响应可为内联 `b64_json`/`b64` 或 `url`，两者都落盘为 artifact。
+- **video（异步任务）**：`POST /api/v3/contents/generations/tasks`，body = `model` + `content` 数组
+  （一条 `text` 加可选 first/last frame 的 `image_url`，按 `role` 标 `first_frame`/`last_frame`，空则省略）；
+  随后轮询 `GET /api/v3/contents/generations/tasks/{id}` 至 `succeeded`，取输出 video URL 的 bytes（`get_bytes`
+  无 auth 头），落盘为 `video/mp4` artifact。轮询有上限（`video_poll_attempts`，单测不真实 sleep）；
+  `failed`/`cancelled`/`expired` 抛 `ValueError`，超时抛 `TimeoutError`。
+- **TTS 仍延后**：`text_to_speech` 维持通用 `audio/speech` 骨架；真实 Seed Speech / TTS API 与其独立 key
+  语义不在本 PR，留待后续。
 
 ### link_reader（低风险 fetch+extract 聚合）
 
