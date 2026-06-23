@@ -164,6 +164,22 @@ PR12 在 app 层补上**凭证/真实 client 注入缝**，但**不做任何 liv
   无网络）。注：harness 各工具的 `required_secrets`（如 `MODEL_IMAGE_NAME`）实为**模型名** env
   var（model-vs-secret 命名混淆）；凭证**值**的 env 名属真实 factory（PR13+）职责，本 seam 不写死。
 
+##### Volc/Ark client 骨架（PR13，仍非 live 接入）
+
+PR13 在 app 层加 `neuroagent_app.multimodal.ArkMultimodalClient`（实现 harness `MultimodalClient`）
++ `make_ark_client_factory(...)`，但**不做任何 live/付费调用、不接生产默认线**：
+
+- **transport 注入**：所有 HTTP 走注入的 `ArkTransport`（`post_json` / `get_bytes`），测试不触网；
+  生产 router 默认不注入 factory，故此路径默认不跑。
+- **凭证安全**：api_key 由 `make_ark_client_factory` 经 `MultimodalSecretResolver` 解析声明 env 名
+  `MULTIMODAL_ARK_API_KEY`（缺失 → 工厂返回 `None`，real 模式降级 0 工具）；值仅进 Authorization
+  头交给 transport，**绝不**入 Settings/repr/日志/结果。
+- **artifact 纪律**：每个生成物（b64 内联或 URL 取回的 bytes）都经注入 `artifact_client.create_artifact`
+  落盘，返回 `MultimodalArtifact`（artifact 引用），**绝不**裸路径或只给外部 URL。
+- **接线方式**：`build_multimodal_provider(settings, resolver=..., client_factory=make_ark_client_factory(tenant_id=..., artifact_client=..., transport=...))`。
+- **PR14+ 前置**：harness `StorageArtifactClient` 当前 allow-list 仅 `image/`·`text/`·`json`·`pdf`，
+  **不含 `video/`·`audio/`**；真实落盘视频/音频前需先放开该 allow-list（本 PR 不改 harness）。
+
 ### link_reader（低风险 fetch+extract 聚合）
 
 `link_reader` 是建立在现有 `web_fetch` 原语之上的低风险工具：一次读取一小批 URL，逐个
