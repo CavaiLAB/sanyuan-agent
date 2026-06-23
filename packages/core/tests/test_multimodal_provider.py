@@ -15,12 +15,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
 from neuroagent.tools import (
     MultimodalArtifact,
     MultimodalClient,
     MultimodalToolProvider,
 )
 from neuroagent.tools.multimodal import (
+    ALL_TOOL_NAMES,
     SECRET_EDIT,
     SECRET_IMAGE,
     SECRET_TTS,
@@ -235,3 +237,58 @@ class TestRegistration:
             fn = tool_def["function"]
             assert set(fn) >= {"name", "parameters"}
             assert "arguments" not in fn["parameters"].get("properties", {})
+
+
+# ---------------------------------------------------------------------------
+# Capability gating: supported_tools narrows the registered subset (PR17)
+# ---------------------------------------------------------------------------
+
+
+class TestSupportedToolsSubset:
+    def test_all_tool_names_constant(self) -> None:
+        assert ALL_TOOL_NAMES == (
+            "image_generate", "image_edit", "video_generate", "text_to_speech"
+        )
+
+    def test_default_none_yields_all_four(self) -> None:
+        provider = MultimodalToolProvider(FakeClient())  # no supported_tools
+        assert {s.name for s in provider.provide()} == EXPECTED_NAMES
+
+    def test_subset_yields_only_requested_tools_in_order(self) -> None:
+        provider = MultimodalToolProvider(
+            FakeClient(), supported_tools=("image_generate", "image_edit", "video_generate")
+        )
+        specs = provider.provide()
+        # excluded, and registration order preserved
+        assert [s.name for s in specs] == ["image_generate", "image_edit", "video_generate"]
+        assert "text_to_speech" not in {s.name for s in specs}
+
+    def test_single_tool_subset(self) -> None:
+        provider = MultimodalToolProvider(FakeClient(), supported_tools={"video_generate"})
+        assert [s.name for s in provider.provide()] == ["video_generate"]
+
+    def test_empty_subset_yields_no_tools(self) -> None:
+        provider = MultimodalToolProvider(FakeClient(), supported_tools=())
+        assert provider.provide() == []
+
+    def test_unknown_tool_name_raises(self) -> None:
+        with pytest.raises(ValueError, match="unknown multimodal tool names"):
+            MultimodalToolProvider(FakeClient(), supported_tools={"image_generate", "bogus_tool"})
+
+    def test_subset_specs_keep_full_metadata(self) -> None:
+        provider = MultimodalToolProvider(FakeClient(), supported_tools={"video_generate"})
+        spec = provider.provide()[0]
+        assert spec.category == "multimodal"
+        assert spec.capabilities == ("video", "generate")
+        assert spec.required_secrets == (SECRET_VIDEO,)
+
+    def test_subset_registers_only_subset_into_registry(self) -> None:
+        registry = ToolRegistry()
+        names = register_provider(
+            registry,
+            MultimodalToolProvider(
+                FakeClient(), supported_tools=("image_generate", "image_edit", "video_generate")
+            ),
+        )
+        assert set(names) == {"image_generate", "image_edit", "video_generate"}
+        assert "text_to_speech" not in registry.list_tools()

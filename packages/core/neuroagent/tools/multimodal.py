@@ -25,6 +25,7 @@ this module never reads them.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -35,6 +36,9 @@ SECRET_IMAGE = "MODEL_IMAGE_NAME"
 SECRET_EDIT = "MODEL_EDIT_NAME"
 SECRET_VIDEO = "MODEL_VIDEO_NAME"
 SECRET_TTS = "MODEL_TTS_NAME"
+
+# The full set of multimodal tool names, in registration order.
+ALL_TOOL_NAMES = ("image_generate", "image_edit", "video_generate", "text_to_speech")
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,10 +83,28 @@ def _result(artifact: MultimodalArtifact) -> dict[str, Any]:
 
 
 class MultimodalToolProvider:
-    """Yields the four multimodal tools bound to an injected *client*."""
+    """Yields the multimodal tools bound to an injected *client*.
 
-    def __init__(self, client: MultimodalClient) -> None:
+    *supported_tools* optionally narrows the registered tools to a subset of
+    :data:`ALL_TOOL_NAMES` (e.g. a real vendor that only covers image+video, not
+    speech). ``None`` (the default) yields all four, preserving the prior
+    behaviour for the fake/dev client and existing callers. An unknown name is a
+    programming error and raises ``ValueError`` rather than silently dropping a
+    tool.
+    """
+
+    def __init__(
+        self, client: MultimodalClient, *, supported_tools: Iterable[str] | None = None
+    ) -> None:
         self._client = client
+        if supported_tools is None:
+            self._supported: frozenset[str] | None = None
+        else:
+            requested = frozenset(supported_tools)
+            unknown = requested - frozenset(ALL_TOOL_NAMES)
+            if unknown:
+                raise ValueError(f"unknown multimodal tool names: {sorted(unknown)}")
+            self._supported = requested
 
     def provide(self) -> list[ToolSpec]:
         client = self._client
@@ -120,7 +142,7 @@ class MultimodalToolProvider:
             "artifact_output": True,
             "policy_hint": "confirm",
         }
-        return [
+        specs = [
             spec_from_callable(
                 image_generate,
                 capabilities=("image", "generate"),
@@ -146,3 +168,6 @@ class MultimodalToolProvider:
                 **common,
             ),
         ]
+        if self._supported is None:
+            return specs
+        return [s for s in specs if s.name in self._supported]

@@ -210,6 +210,19 @@ PR16 在 app 层加 `HttpxArkTransport`（实现 `ArkTransport`），是**唯一
   `HttpxArkTransport`（注入 transport 时仍以注入者为准）；缺凭证仍是纯 no-op、不建 transport。默认 chat 路径
   不注入 factory，真实 transport 仅在部署显式接线时才到达。
 
+###### PR17 capability 门控注册（真实 Ark 只注册 image+video）
+
+`text_to_speech` 走的是独立的 VeSpeech / Seed Speech 凭证边界，真实 Ark client 仅映射了 image/video。为避免把
+通用 `audio/speech` 骨架当作真实工具暴露：
+
+- `MultimodalToolProvider(client, *, supported_tools=None)` 新增可选 `supported_tools`：`None`（默认）仍产出全部
+  4 个工具（兼容/fake 路径不变）；给定子集时只产出 `ALL_TOOL_NAMES` 内的对应工具，未知名直接 `ValueError`（不静默丢工具）。
+- `build_multimodal_provider` 在真实 factory 建出 client 后读取可选属性 `supported_tool_names`：有则按其过滤注册，
+  无则保留 4 个（向后兼容；fake/dev client 无此属性故仍 4 个）。
+- `ArkMultimodalClient.supported_tool_names = ("image_generate","image_edit","video_generate")` —— 真实 Ark 工厂
+  因此只注册 3 个工具、**不注册 `text_to_speech`**。其方法/骨架保留，待真实 VeSpeech/Seed Speech 落地再注册。
+- **TTS 仍延后**：本 PR 不实现任何真实 TTS API，不做"真实 TTS 已接入"的声明。
+
 ### link_reader（低风险 fetch+extract 聚合）
 
 `link_reader` 是建立在现有 `web_fetch` 原语之上的低风险工具：一次读取一小批 URL，逐个
