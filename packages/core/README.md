@@ -223,6 +223,17 @@ PR16 在 app 层加 `HttpxArkTransport`（实现 `ArkTransport`），是**唯一
   因此只注册 3 个工具、**不注册 `text_to_speech`**。其方法/骨架保留，待真实 VeSpeech/Seed Speech 落地再注册。
 - **TTS 仍延后**：本 PR 不实现任何真实 TTS API，不做"真实 TTS 已接入"的声明。
 
+###### PR18 partial-client 友好（缩窄后只校验所需方法）
+
+工具名即 client 方法名（`image_generate` → `client.image_generate`）。给 `supported_tools` 后，provider 支持
+**部分实现的 client**：
+
+- 只校验**被请求**子集对应的方法存在（`callable(getattr(client, name, None))`）；缺失即 `ValueError` 点名该工具/方法
+  （fail-fast，不静默丢）。**未被请求**的方法一概不要求。
+- 默认（`supported_tools=None`）行为完全不变：fake/dev 全量 client 仍产出 4 工具，`MultimodalClient` 协议照常覆盖。
+- 由此未来的纯语音（VeSpeech/Seed Speech）client 可只实现 `text_to_speech`、无需 dummy image/video；image/video-only
+  client 也无需 dummy `text_to_speech`。
+
 ### link_reader（低风险 fetch+extract 聚合）
 
 `link_reader` 是建立在现有 `web_fetch` 原语之上的低风险工具：一次读取一小批 URL，逐个

@@ -292,3 +292,122 @@ class TestSupportedToolsSubset:
         )
         assert set(names) == {"image_generate", "image_edit", "video_generate"}
         assert "text_to_speech" not in registry.list_tools()
+
+
+# ---------------------------------------------------------------------------
+# Partial clients: a narrowed provider needs only the requested methods (PR18)
+# ---------------------------------------------------------------------------
+
+
+def _art(kind: str, ext: str, mime: str) -> MultimodalArtifact:
+    return MultimodalArtifact(
+        artifact_id=f"art-{kind}",
+        filename=f"{kind}.{ext}",
+        content_type=mime,
+        download_url=f"https://example.com/{kind}.{ext}",
+        sha256=f"sha-{kind}",
+        workspace_ref="",
+    )
+
+
+@dataclass
+class ImageOnlyClient:
+    """Implements only the two image methods - no video_generate / text_to_speech."""
+
+    calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+
+    async def image_generate(self, *, prompt: str, size: str) -> MultimodalArtifact:
+        self.calls.append(("image_generate", {"prompt": prompt, "size": size}))
+        return _art("image", "png", "image/png")
+
+    async def image_edit(self, *, input_ref: str, prompt: str, size: str) -> MultimodalArtifact:
+        self.calls.append(("image_edit", {"input_ref": input_ref, "prompt": prompt, "size": size}))
+        return _art("edit", "png", "image/png")
+
+
+@dataclass
+class VideoOnlyClient:
+    """Implements only video_generate - no image_* / text_to_speech."""
+
+    calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+
+    async def video_generate(
+        self, *, prompt: str, first_frame_ref: str, last_frame_ref: str
+    ) -> MultimodalArtifact:
+        self.calls.append(("video_generate", {"prompt": prompt}))
+        return _art("video", "mp4", "video/mp4")
+
+
+@dataclass
+class TtsOnlyClient:
+    """Implements only text_to_speech - the future VeSpeech / Seed Speech shape."""
+
+    calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+
+    async def text_to_speech(self, *, text: str, voice: str) -> MultimodalArtifact:
+        self.calls.append(("text_to_speech", {"text": text, "voice": voice}))
+        return _art("tts", "mp3", "audio/mpeg")
+
+
+class TestPartialClient:
+    def test_image_only_client_lacks_other_methods(self) -> None:
+        c = ImageOnlyClient()
+        assert not hasattr(c, "video_generate")
+        assert not hasattr(c, "text_to_speech")
+
+    def test_image_only_registers_exactly_the_two_image_tools(self) -> None:
+        provider = MultimodalToolProvider(
+            ImageOnlyClient(), supported_tools=("image_generate", "image_edit")
+        )
+        assert [s.name for s in provider.provide()] == ["image_generate", "image_edit"]
+
+    async def test_image_only_tools_call_successfully(self) -> None:
+        client = ImageOnlyClient()
+        specs = {
+            s.name: s
+            for s in MultimodalToolProvider(
+                client, supported_tools=("image_generate", "image_edit")
+            ).provide()
+        }
+        gen = await specs["image_generate"].callable(prompt="a cat", size="512x512")
+        edit = await specs["image_edit"].callable(input_ref="art-src", prompt="add a hat")
+        assert gen["artifact_id"] == "art-image"
+        assert edit["artifact_id"] == "art-edit"
+        assert [name for name, _ in client.calls] == ["image_generate", "image_edit"]
+
+    async def test_video_only_registers_and_calls(self) -> None:
+        client = VideoOnlyClient()
+        provider = MultimodalToolProvider(client, supported_tools=("video_generate",))
+        specs = provider.provide()
+        assert [s.name for s in specs] == ["video_generate"]
+        result = await specs[0].callable(prompt="a sunrise")
+        assert result["content_type"] == "video/mp4"
+        assert client.calls == [("video_generate", {"prompt": "a sunrise"})]
+
+    async def test_tts_only_registers_and_calls(self) -> None:
+        # A speech-only client provides just text_to_speech, with no image/video.
+        client = TtsOnlyClient()
+        assert not hasattr(client, "image_generate")
+        provider = MultimodalToolProvider(client, supported_tools={"text_to_speech"})
+        specs = provider.provide()
+        assert [s.name for s in specs] == ["text_to_speech"]
+        result = await specs[0].callable(text="hello", voice="alloy")
+        assert result["content_type"] == "audio/mpeg"
+        assert client.calls == [("text_to_speech", {"text": "hello", "voice": "alloy"})]
+
+    def test_missing_requested_method_raises_naming_the_tool(self) -> None:
+        # Image-only client, but video_generate is requested -> fail fast, clearly.
+        with pytest.raises(ValueError, match=r"missing method\(s\) for requested tool\(s\).*video_generate"):
+            MultimodalToolProvider(
+                ImageOnlyClient(), supported_tools=("image_generate", "video_generate")
+            )
+
+    def test_unrequested_methods_are_not_required(self) -> None:
+        # tts-only client lacks image/video methods; requesting only tts is fine.
+        provider = MultimodalToolProvider(TtsOnlyClient(), supported_tools=("text_to_speech",))
+        assert [s.name for s in provider.provide()] == ["text_to_speech"]
+
+    def test_full_default_still_requires_nothing_new(self) -> None:
+        # Regression: the default (no supported_tools) path is unchanged - the full
+        # fake client still yields all four with no extra validation.
+        assert {s.name for s in MultimodalToolProvider(FakeClient()).provide()} == EXPECTED_NAMES

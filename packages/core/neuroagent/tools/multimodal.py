@@ -88,9 +88,18 @@ class MultimodalToolProvider:
     *supported_tools* optionally narrows the registered tools to a subset of
     :data:`ALL_TOOL_NAMES` (e.g. a real vendor that only covers image+video, not
     speech). ``None`` (the default) yields all four, preserving the prior
-    behaviour for the fake/dev client and existing callers. An unknown name is a
-    programming error and raises ``ValueError`` rather than silently dropping a
-    tool.
+    behaviour for the fake/dev full client (a :class:`MultimodalClient`) and
+    existing callers. An unknown name is a programming error and raises
+    ``ValueError`` rather than silently dropping a tool.
+
+    Each tool name is also its client method name (``image_generate`` ->
+    ``client.image_generate``), so a narrowed provider supports a **partial
+    client** that implements only the subset's methods: when *supported_tools* is
+    given, only those methods must exist on *client*; a missing one raises
+    ``ValueError`` naming the tool/method, and methods for *unrequested* tools are
+    never required. This lets a future speech-only (VeSpeech / Seed Speech) client
+    provide just ``text_to_speech`` without dummy image/video methods, and an
+    image/video-only client omit ``text_to_speech``.
     """
 
     def __init__(
@@ -98,13 +107,23 @@ class MultimodalToolProvider:
     ) -> None:
         self._client = client
         if supported_tools is None:
+            # Full client: register all four; preserve prior behaviour exactly
+            # (the MultimodalClient protocol already covers method existence).
             self._supported: frozenset[str] | None = None
-        else:
-            requested = frozenset(supported_tools)
-            unknown = requested - frozenset(ALL_TOOL_NAMES)
-            if unknown:
-                raise ValueError(f"unknown multimodal tool names: {sorted(unknown)}")
-            self._supported = requested
+            return
+        requested = frozenset(supported_tools)
+        unknown = requested - frozenset(ALL_TOOL_NAMES)
+        if unknown:
+            raise ValueError(f"unknown multimodal tool names: {sorted(unknown)}")
+        # Partial-client support: only the requested tools' methods must exist.
+        # Tool name == method name, so validate those and nothing else.
+        missing = sorted(name for name in requested if not callable(getattr(client, name, None)))
+        if missing:
+            raise ValueError(
+                "multimodal client is missing method(s) for requested tool(s): "
+                f"{missing}"
+            )
+        self._supported = requested
 
     def provide(self) -> list[ToolSpec]:
         client = self._client
