@@ -196,6 +196,20 @@ PR15 把 image/video 请求响应形态对齐官方 Ark/ModelArk 文档（仅作
 - **TTS 仍延后**：`text_to_speech` 维持通用 `audio/speech` 骨架；真实 Seed Speech / TTS API 与其独立 key
   语义不在本 PR，留待后续。
 
+###### PR16 真实 httpx transport（仍非 live 测试、无生产默认线）
+
+PR16 在 app 层加 `HttpxArkTransport`（实现 `ArkTransport`），是**唯一真正发 socket 的 transport**：
+
+- **header 透传、无 auth 合成**：`post_json`/`get_json`/`get_bytes` 原样转发 client 给的 headers，自身
+  **不**追加任何 Authorization —— 故 `get_bytes` 用 `{}` 调用时资产取回无凭证。
+- **解析与错误**：API 调用解析 JSON 并要求对象体；资产取回返回原始 bytes。非 2xx / 网络错误 / 非 JSON / 非对象
+  JSON 均抛 `ArkTransportError`，其 message 仅含方法+状态+**去 query 的 URL**，**绝不**带请求 headers，
+  故 Authorization bearer / API key（及预签名 URL 签名）不外泄；`repr` 同样无密钥。
+- **构造不触网**：httpx 惰性连接；单测注入 `httpx.MockTransport` 包裹的 client，全程无网络。
+- **接线方式**：`make_ark_client_factory(..., transport=None)` 在**工厂被调用且凭证解析成功后**惰性 new 一个
+  `HttpxArkTransport`（注入 transport 时仍以注入者为准）；缺凭证仍是纯 no-op、不建 transport。默认 chat 路径
+  不注入 factory，真实 transport 仅在部署显式接线时才到达。
+
 ### link_reader（低风险 fetch+extract 聚合）
 
 `link_reader` 是建立在现有 `web_fetch` 原语之上的低风险工具：一次读取一小批 URL，逐个
