@@ -31,8 +31,12 @@ class TestHelpers:
         assert _is_allowed_content_type("image/png")
         assert _is_allowed_content_type("application/json")
         assert _is_allowed_content_type("application/pdf")
+        # multimodal media now allowed
+        assert _is_allowed_content_type("video/mp4")
+        assert _is_allowed_content_type("audio/mpeg")
+        # arbitrary binaries / application/* stay rejected
         assert not _is_allowed_content_type("application/octet-stream")
-        assert not _is_allowed_content_type("video/mp4")
+        assert not _is_allowed_content_type("application/zip")
 
     def test_sha256(self) -> None:
         data = b"hello"
@@ -118,6 +122,69 @@ class TestHappyPath:
         assert ref.id == _ARTIFACT_ID
 
 
+class TestMediaPersist:
+    """Multimodal media (video/audio) persists through the full mocked flow."""
+
+    @respx.mock
+    @pytest.mark.parametrize(
+        "content_type,filename,payload",
+        [
+            ("video/mp4", "clip.mp4", b"\x00\x00\x00\x18ftypmp42-video-bytes"),
+            ("audio/mpeg", "speech.mp3", b"ID3-audio-bytes"),
+        ],
+    )
+    async def test_uploads_media(
+        self,
+        client: StorageArtifactClient,
+        content_type: str,
+        filename: str,
+        payload: bytes,
+    ) -> None:
+        import json
+
+        meta_route = respx.post("https://storage.internal/api/v1/storage/artifacts").mock(
+            return_value=httpx.Response(
+                200,
+                json={"artifact_id": _ARTIFACT_ID, "upload_url": _UPLOAD_URL},
+            )
+        )
+        upload_route = respx.put(_UPLOAD_URL).mock(return_value=httpx.Response(200))
+        complete_route = respx.post(
+            f"https://storage.internal/api/v1/storage/artifacts/{_ARTIFACT_ID}/complete"
+        ).mock(
+            return_value=httpx.Response(
+                200,
+                json={"download_url": _DOWNLOAD_URL, "sha256": _sha256(payload)},
+            )
+        )
+
+        ref = await client.create_artifact(
+            tenant_id="t1",
+            content_bytes=payload,
+            content_type=content_type,
+            filename=filename,
+        )
+
+        assert isinstance(ref, ArtifactRef)
+        assert ref.url == _DOWNLOAD_URL
+        assert ref.content_type == content_type
+        assert ref.sha256 == _sha256(payload)
+
+        # metadata request carries the media content_type + payload digest
+        meta_payload = json.loads(meta_route.calls.last.request.content)
+        assert meta_payload["content_type"] == content_type
+        assert meta_payload["filename"] == filename
+        assert meta_payload["sha256"] == _sha256(payload)
+        assert meta_payload["size"] == len(payload)
+
+        # raw bytes uploaded via PUT with the media Content-Type
+        assert upload_route.called
+        upload_req = upload_route.calls.last.request
+        assert upload_req.content == payload
+        assert upload_req.headers["Content-Type"] == content_type
+        assert complete_route.called
+
+
 class TestValidation:
     async def test_rejects_oversized_file(self, client: StorageArtifactClient) -> None:
         big = b"x" * (50 * 1024 * 1024 + 1)
@@ -129,13 +196,14 @@ class TestValidation:
                 filename="big.txt",
             )
 
-    async def test_rejects_disallowed_content_type(self, client: StorageArtifactClient) -> None:
+    async def test_rejects_octet_stream_content_type(self, client: StorageArtifactClient) -> None:
+        # application/octet-stream stays rejected even though video/audio are now allowed.
         with pytest.raises(ValueError, match="Content type not allowed"):
             await client.create_artifact(
                 tenant_id="t1",
                 content_bytes=b"x",
-                content_type="video/mp4",
-                filename="vid.mp4",
+                content_type="application/octet-stream",
+                filename="blob.bin",
             )
 
 

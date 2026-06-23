@@ -177,8 +177,9 @@ PR13 在 app 层加 `neuroagent_app.multimodal.ArkMultimodalClient`（实现 har
 - **artifact 纪律**：每个生成物（b64 内联或 URL 取回的 bytes）都经注入 `artifact_client.create_artifact`
   落盘，返回 `MultimodalArtifact`（artifact 引用），**绝不**裸路径或只给外部 URL。
 - **接线方式**：`build_multimodal_provider(settings, resolver=..., client_factory=make_ark_client_factory(tenant_id=..., artifact_client=..., transport=...))`。
-- **PR14+ 前置**：harness `StorageArtifactClient` 当前 allow-list 仅 `image/`·`text/`·`json`·`pdf`，
-  **不含 `video/`·`audio/`**；真实落盘视频/音频前需先放开该 allow-list（本 PR 不改 harness）。
+- **落盘 content-type**：自 **PR14** 起 harness `StorageArtifactClient` allow-list 已包含 `video/`·`audio/`
+  （连同既有 `text/`·`image/`·`application/json`·`application/pdf`），故视频/音频生成物可落盘；
+  `application/octet-stream` 等任意 `application/*` 二进制仍拒绝。
 
 ### link_reader（低风险 fetch+extract 聚合）
 

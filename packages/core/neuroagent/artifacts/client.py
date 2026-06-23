@@ -12,9 +12,14 @@ import httpx
 _S2S_TOKEN_PROVIDER = Callable[[], Awaitable[str]] | Callable[[], str]
 _MAX_SIZE_BYTES = 50 * 1024 * 1024
 _ALLOWED_CONTENT_TYPES: frozenset[str] = frozenset()
+# Prefix allow-list. ``video/`` and ``audio/`` are allowed so multimodal media
+# artifacts can persist; ``application/`` stays restricted to specific subtypes
+# (json/pdf) so arbitrary binaries like ``application/octet-stream`` remain rejected.
 _ALLOWED_CONTENT_PREFIXES: tuple[str, ...] = (
     "text/",
     "image/",
+    "video/",
+    "audio/",
     "application/json",
     "application/pdf",
 )
