@@ -36,6 +36,30 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _apply_ownership_meta(
+    meta_payload: dict[str, Any],
+    *,
+    ownership: dict[str, str] | None,
+    kind: str | None,
+    origin: str | None,
+) -> None:
+    """Fold additive C0.1 data-centralization tags into the artifact metadata.
+
+    ``ownership`` carries owner/department/tenant (forwarded verbatim); ``kind``
+    and ``origin`` classify the artifact. All optional — absent keys are omitted
+    so the request stays backward-compatible.
+    """
+    if ownership:
+        if ownership.get("owner"):
+            meta_payload["owner"] = ownership["owner"]
+        if ownership.get("department"):
+            meta_payload["department"] = ownership["department"]
+    if kind is not None:
+        meta_payload["kind"] = kind
+    if origin is not None:
+        meta_payload["origin"] = origin
+
+
 @dataclass(frozen=True, slots=True)
 class ArtifactRef:
     """Reference to a stored artifact."""
@@ -84,6 +108,9 @@ class StorageArtifactClient:
         run_id: str | None = None,
         user_id: str | None = None,
         origin_path: str | None = None,
+        ownership: dict[str, str] | None = None,
+        kind: str | None = None,
+        origin: str | None = None,
     ) -> ArtifactRef:
         """Upload a sandbox output file as an artifact.
 
@@ -91,6 +118,11 @@ class StorageArtifactClient:
         whitelist (the caller validates via extension blacklist) and
         enforces a **100 MB** size limit.  Optional *run_id*, *user_id*,
         and *origin_path* metadata are forwarded to the Storage service.
+
+        *ownership* (C0.1 ``OwnershipLabels``: owner/department/tenant),
+        *kind* (``produced``/``uploaded``) and *origin* (``cloud``/``computer``)
+        are additive data-centralization tags (C0.1 ``Artifact``); forwarded
+        when present so the central artifact record carries owner/department/tenant.
 
         Raises:
             ValueError: payload exceeds 100 MB.
@@ -123,6 +155,7 @@ class StorageArtifactClient:
             meta_payload["user_id"] = user_id
         if origin_path is not None:
             meta_payload["origin_path"] = origin_path
+        _apply_ownership_meta(meta_payload, ownership=ownership, kind=kind, origin=origin)
 
         # Step 1 — request upload slot
         meta_resp = await self._post_with_retry(
@@ -169,8 +202,17 @@ class StorageArtifactClient:
         content_bytes: bytes,
         content_type: str,
         filename: str,
+        *,
+        ownership: dict[str, str] | None = None,
+        kind: str | None = None,
+        origin: str | None = None,
     ) -> ArtifactRef:
         """Upload *content_bytes* as a new artifact and return its reference.
+
+        *ownership* (C0.1 ``OwnershipLabels``: owner/department/tenant), *kind*
+        (``produced``/``uploaded``) and *origin* (``cloud``/``computer``) are
+        additive data-centralization tags forwarded to the Storage service when
+        present, so the central artifact record carries owner/department/tenant.
 
         Raises:
             ValueError: if *content_type* is not in the whitelist or the payload
@@ -202,6 +244,7 @@ class StorageArtifactClient:
             "size": len(content_bytes),
             "sha256": digest,
         }
+        _apply_ownership_meta(meta_payload, ownership=ownership, kind=kind, origin=origin)
 
         meta_resp = await self._post_with_retry(
             f"{self._base_url}/api/v1/storage/artifacts",
