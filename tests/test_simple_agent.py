@@ -162,8 +162,14 @@ class TestSimpleAgent:
         tool_msgs = [m for m in result["messages"] if _role(m) == "tool"]
         assert tool_msgs[0].content == "async-echo: hello"
 
-    async def test_max_iter_stops_loop(self):
-        """Agent stops after max_iter iterations."""
+    async def test_max_iter_forces_final_answer(self):
+        """At the iteration cap the agent still produces a final answer.
+
+        Regression: the loop used to END on a tool-call turn with no assistant
+        prose — an empty body the client dropped on reload (user sees "no final
+        answer", conversation looks lost). Now a `finalize` turn makes one
+        tool-less LLM call so the body is never empty.
+        """
         provider = LLMProvider(
             name="test",
             provider_kind="openai",
@@ -171,7 +177,7 @@ class TestSimpleAgent:
         )
         agent = build_simple_agent(provider, [_echo_tool], max_iter=2)
 
-        # LLM always requests tool calls → should stop at max_iter
+        # LLM keeps requesting tools; the cap is hit and `finalize` synthesizes.
         responses = [
             _MockResponse([
                 _MockChoice(_MockMessage(
@@ -186,13 +192,13 @@ class TestSimpleAgent:
                 ))
             ]),
             _MockResponse([
-                _MockChoice(_MockMessage(content="Stopped")),
+                _MockChoice(_MockMessage(content="最终汇总")),
             ]),
         ]
 
         mock_llm = AsyncMock(side_effect=responses)
         with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
-            await agent.ainvoke({
+            result = await agent.ainvoke({
                 "messages": [{"role": "user", "content": "Loop test"}],
                 "next_action": None,
                 "tool_results": [],
@@ -200,5 +206,45 @@ class TestSimpleAgent:
                 "max_iter": 2,
             })
 
-        # Only 2 plan calls because max_iter=2
+        # 2 plan calls (capped) + 1 forced finalize call.
+        assert mock_llm.await_count == 3
+        # The run ends with a real assistant answer, not a silent tool-call turn.
+        assistant_msgs = [m for m in result["messages"] if _role(m) == "assistant"]
+        assert assistant_msgs[-1]["content"] == "最终汇总"
+        # The finalize call is made WITHOUT tools (3rd positional arg).
+        assert mock_llm.await_args_list[-1].args[2] == []
+
+    async def test_max_iter_finalize_empty_content_falls_back(self):
+        """If the forced finalize call returns no content, use a safe fallback
+        so the body is still non-empty (never a blank turn)."""
+        provider = LLMProvider(
+            name="test",
+            provider_kind="openai",
+            default_model="gpt-4",
+        )
+        agent = build_simple_agent(provider, [_echo_tool], max_iter=1)
+
+        responses = [
+            _MockResponse([
+                _MockChoice(_MockMessage(
+                    content="",
+                    tool_calls=[_MockToolCall("tc-1", "_echo_tool", '{"msg": "hi"}')],
+                ))
+            ]),
+            _MockResponse([_MockChoice(_MockMessage(content=""))]),
+        ]
+
+        mock_llm = AsyncMock(side_effect=responses)
+        with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
+            result = await agent.ainvoke({
+                "messages": [{"role": "user", "content": "Loop test"}],
+                "next_action": None,
+                "tool_results": [],
+                "iteration": 0,
+                "max_iter": 1,
+            })
+
         assert mock_llm.await_count == 2
+        assistant_msgs = [m for m in result["messages"] if _role(m) == "assistant"]
+        assert assistant_msgs[-1]["content"].strip() != ""
+        assert "步数上限" in assistant_msgs[-1]["content"]

@@ -515,6 +515,51 @@ def build_simple_agent(
         )
         return {"next_action": "stop", "messages": [msg], "usage": usage}
 
+    async def finalize(state: AgentState) -> dict[str, Any]:
+        """Forced wrap-up when the loop is cut off at the iteration cap.
+
+        ``should_continue`` routes here (instead of ``END``) when the agent still
+        wanted to call a tool but hit ``max_iter``. Left alone the run would end
+        on a tool-call turn with no assistant prose — an empty body the client
+        drops on reload (the user sees "no final answer", and the conversation
+        looks lost). Make one more LLM call *without tools* so the model must
+        synthesize a textual answer from what it already gathered.
+        """
+        working = state.get("working")
+        bounded = trim_messages(
+            state["messages"], token_budget=context_token_budget
+        )
+        llm_messages = _inject_working_summary(bounded, working)
+        llm_messages = [
+            *llm_messages,
+            {
+                "role": "user",
+                "content": (
+                    "已达到本次任务的工具调用步数上限，请不要再请求任何工具。"  # noqa: RUF001
+                    "请直接基于以上已经获取到的信息，给出尽可能完整的最终答复；"  # noqa: RUF001
+                    "如信息不足，请说明已知部分与缺口。"  # noqa: RUF001
+                ),
+            },
+        ]
+        response = await _call_llm(
+            llm_provider,
+            llm_messages,
+            [],  # no tools — force a textual final answer
+            metadata=llm_metadata,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        usage = _get_usage(response)
+        content = _get_content(response) or (
+            "已达到本次任务的步数上限，未能生成完整答复。"  # noqa: RUF001
+            "以上为已检索到的中间过程，可继续追问以完成。"  # noqa: RUF001
+        )
+        msg = {"role": "assistant", "content": content}
+        await _maybe_save_episode(
+            state, episodic_memory, tenant_id, conversation_id, session_started_at
+        )
+        return {"next_action": "stop", "messages": [msg], "usage": usage}
+
     async def act(state: AgentState) -> dict[str, Any]:
         """Routing node — decides whether tool execution is needed."""
         last_msg = state["messages"][-1] if state["messages"] else {}
@@ -591,11 +636,12 @@ def build_simple_agent(
 
     def should_continue(state: AgentState) -> str:
         limit = state.get("max_iter", max_iter)
-        if (
-            state["next_action"] == "tool_call"
-            and state.get("iteration", 0) < limit
-        ):
-            return "plan"
+        if state["next_action"] == "tool_call":
+            if state.get("iteration", 0) < limit:
+                return "plan"
+            # Cap reached while the agent still wanted tools: synthesize a final
+            # answer instead of ending silently on a tool-call turn (empty body).
+            return "finalize"
         return END
 
     async def tool_executor(state: AgentState) -> dict[str, Any]:
@@ -606,6 +652,7 @@ def build_simple_agent(
 
     builder = StateGraph(AgentState)
     builder.add_node("plan", plan)
+    builder.add_node("finalize", finalize)
     builder.add_node("act", act)
     builder.add_node("tool_executor", tool_executor)
     builder.add_node("observe", observe)
@@ -613,6 +660,11 @@ def build_simple_agent(
     builder.add_edge("plan", "act")
     builder.add_conditional_edges("act", route_after_act)
     builder.add_edge("tool_executor", "observe")
-    builder.add_conditional_edges("observe", should_continue)
+    builder.add_conditional_edges(
+        "observe",
+        should_continue,
+        {"plan": "plan", "finalize": "finalize", END: END},
+    )
+    builder.add_edge("finalize", END)
 
     return builder.compile()
