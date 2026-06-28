@@ -1,6 +1,5 @@
 """Simplified LangGraph agent (plan → act → tool_executor → observe → plan)."""
 
-import inspect
 import logging
 import os
 import time
@@ -21,7 +20,7 @@ from neuroagent.memory.working import WorkingMemory
 from neuroagent.models import LLMProvider
 from neuroagent.security.tool_policy import ToolPolicy
 from neuroagent.skills.registry import SkillRegistry
-from neuroagent.tools.registry import ToolRegistry
+from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 logger = logging.getLogger(__name__)
 
@@ -56,37 +55,13 @@ def _to_tool_def(tool: Callable[..., Any]) -> dict[str, Any]:
     A tool that carries an explicit ``__tool_schema__`` (the ``function`` object)
     — e.g. an MCP-adapted tool whose JSON schema can't be reflected from a
     generic ``**kwargs`` wrapper — has it used verbatim. Otherwise the schema is
-    reflected from the callable's signature.
+    reflected from the callable's signature via the single shared reflector
+    :func:`~neuroagent.tools.registry.callable_to_schema` (no parallel copy).
     """
     explicit = getattr(tool, "__tool_schema__", None)
     if isinstance(explicit, dict):
         return {"type": "function", "function": explicit}
-
-    sig = inspect.signature(tool)
-    props: dict[str, dict[str, str]] = {}
-    required: list[str] = []
-    for name, param in sig.parameters.items():
-        ann = param.annotation
-        if ann is str:
-            props[name] = {"type": "string"}
-        elif ann is int:
-            props[name] = {"type": "integer"}
-        else:
-            props[name] = {"type": "string"}
-        if param.default is inspect.Parameter.empty:
-            required.append(name)
-    return {
-        "type": "function",
-        "function": {
-            "name": tool.__name__,
-            "description": (tool.__doc__ or "").strip(),
-            "parameters": {
-                "type": "object",
-                "properties": props,
-                "required": required,
-            },
-        },
-    }
+    return {"type": "function", "function": callable_to_schema(tool)}
 
 
 # Map a LangChain message ``.type`` to its OpenAI ``role``.

@@ -34,6 +34,8 @@ from neuroagent.tools.multimodal import (
 from neuroagent.tools.provider import (
     ToolProvider,
     ToolSpec,
+    default_policy_from_specs,
+    missing_required_secrets,
     register_provider,
     register_tool_specs,
     spec_from_callable,
@@ -79,6 +81,8 @@ __all__ = [
     "build_sandbox_tools",
     "build_web_fetch_tool",
     "build_web_search_tool",
+    "default_policy_from_specs",
+    "missing_required_secrets",
     "register_provider",
     "register_tool_specs",
     "set_sandbox_context",

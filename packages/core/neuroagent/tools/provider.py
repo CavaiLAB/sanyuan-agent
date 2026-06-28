@@ -25,10 +25,11 @@ or ``neuroagent_sandbox_supervisor``.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from neuroagent.security.tool_policy import PolicyRule, ToolPolicy
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
 # A policy hint mirrors ToolPolicy's action vocabulary, but is advisory only —
@@ -212,3 +213,60 @@ def register_provider(
 ) -> list[str]:
     """Register every spec a *provider* yields into *registry*."""
     return register_tool_specs(registry, provider.provide(), overwrite=overwrite)
+
+
+# ---------------------------------------------------------------------------
+# Metadata consumers — where the descriptive fields finally do work.
+#
+# These read the advisory metadata (``policy_hint`` / ``required_secrets``) to
+# *build* deployment defaults. They remain advisory: ``ToolPolicy`` / ``RiskGate``
+# are still the runtime authority, and a deployment may adopt, edit, or ignore
+# what these produce. The harness still reads no real secret here.
+# ---------------------------------------------------------------------------
+
+
+def default_policy_from_specs(
+    specs: Iterable[ToolSpec],
+    *,
+    default: str = "allow",
+) -> ToolPolicy:
+    """Build a :class:`ToolPolicy` from each spec's ``policy_hint``.
+
+    A spec carrying ``policy_hint="confirm"`` (external generators, sandbox /
+    bash, file writes) yields a confirm rule on that exact tool name; ``"deny"``
+    a deny rule; ``"allow"`` an explicit allow rule. Specs with no hint
+    contribute nothing and fall through to *default*. Rules are emitted in spec
+    order; since each pattern is an exact tool name they don't shadow each other,
+    so order only matters relative to *default*.
+
+    This is a sane starting policy a deployment may adopt or override — it does
+    not change that ``ToolPolicy`` / ``RiskGate`` enforce at runtime.
+    """
+    rules = [
+        PolicyRule(spec.name, spec.policy_hint)
+        for spec in specs
+        if spec.policy_hint is not None
+    ]
+    return ToolPolicy(rules, default=default)
+
+
+def missing_required_secrets(
+    specs: Iterable[ToolSpec],
+    env: Mapping[str, str],
+) -> dict[str, tuple[str, ...]]:
+    """Return ``{tool_name: missing_secret_names}`` for under-configured specs.
+
+    A startup preflight: surface a tool whose declared ``required_secrets`` are
+    absent (or blank) in *env* *before* the model calls it and it crashes
+    mid-run. The harness never reads real secrets — *env* is supplied by the
+    caller (e.g. ``dict(os.environ)``), and only presence / non-emptiness is
+    checked, never the value. A spec with no declared secrets never appears.
+    """
+    report: dict[str, tuple[str, ...]] = {}
+    for spec in specs:
+        missing = tuple(
+            name for name in spec.required_secrets if not env.get(name, "").strip()
+        )
+        if missing:
+            report[spec.name] = missing
+    return report
