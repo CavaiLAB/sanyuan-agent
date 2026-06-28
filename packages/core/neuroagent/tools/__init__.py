@@ -11,15 +11,24 @@ from neuroagent.tools.browser import (
     CDPClient,
     build_browser_tools,
 )
+from neuroagent.tools.catalog import DEFAULT_TOOL_SETS, builtin_providers
+from neuroagent.tools.computer_use import (
+    ComputerUseClient,
+    ComputerUseResult,
+    ComputerUseToolProvider,
+    FakeComputerUseClient,
+)
 from neuroagent.tools.execute_skills import (
     ExecuteSkillsToolProvider,
     build_execute_skills_tool,
 )
 from neuroagent.tools.file_ops import FileOpsToolProvider, build_file_ops_tools
+from neuroagent.tools.knowledge import KnowledgeBaseToolProvider
 from neuroagent.tools.link_reader import (
     LinkReaderToolProvider,
     build_link_reader_tool,
 )
+from neuroagent.tools.memory import MemoryToolProvider
 from neuroagent.tools.mobile_use import (
     FakeMobileUseClient,
     MobileUseClient,
@@ -52,15 +61,22 @@ from neuroagent.tools.web_provider import WebToolProvider
 from neuroagent.tools.web_search import build_web_search_tool
 
 __all__ = [
+    "DEFAULT_TOOL_SETS",
     "ArtifactWriteToolProvider",
     "BashToolProvider",
     "BrowserSession",
     "BrowserToolProvider",
     "CDPClient",
+    "ComputerUseClient",
+    "ComputerUseResult",
+    "ComputerUseToolProvider",
     "ExecuteSkillsToolProvider",
+    "FakeComputerUseClient",
     "FakeMobileUseClient",
     "FileOpsToolProvider",
+    "KnowledgeBaseToolProvider",
     "LinkReaderToolProvider",
+    "MemoryToolProvider",
     "MobileUseClient",
     "MobileUseResult",
     "MobileUseToolProvider",
@@ -81,6 +97,7 @@ __all__ = [
     "build_sandbox_tools",
     "build_web_fetch_tool",
     "build_web_search_tool",
+    "builtin_providers",
     "default_policy_from_specs",
     "missing_required_secrets",
     "register_provider",
