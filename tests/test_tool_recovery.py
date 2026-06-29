@@ -177,7 +177,11 @@ class TestRecoverToolCall:
         assert msg.tool_call_id == "tc-1"
         assert msg.name == "echo"
 
-    async def test_execution_error_includes_traceback(self):
+    async def test_execution_error_is_clean_without_traceback(self):
+        # PR #420: the raw Python traceback goes to the server log, NEVER the chat
+        # surface — only a one-line reason reaches the conversation. (This test
+        # lives under tests/ which CI doesn't run, so it had drifted to the old
+        # "includes traceback" assertion; realigned here.)
         reg = ToolRegistry()
         reg.register("boom", _boom_tool, callable_to_schema(_boom_tool))
 
@@ -189,8 +193,9 @@ class TestRecoverToolCall:
 
         assert isinstance(msg, ToolMessage)
         assert "[tool-error]" in msg.content
-        assert "kapow" in msg.content
-        assert "Traceback" in msg.content
+        assert "kapow" in msg.content  # the one-line reason survives
+        assert "Traceback" not in msg.content
+        assert 'File "' not in msg.content
         assert msg.name == "boom"
 
     async def test_circuit_breaker_error_message(self):
