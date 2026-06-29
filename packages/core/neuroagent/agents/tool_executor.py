@@ -1,6 +1,7 @@
 """LangGraph tool-executor node backed by ToolRegistry."""
 
 import json
+import logging
 from typing import Any, cast
 
 from langchain_core.messages import ToolMessage
@@ -12,6 +13,8 @@ from neuroagent.agents.errors import (
     ToolNotFoundError,
 )
 from neuroagent.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 def _last_assistant_tool_calls(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -156,11 +159,18 @@ async def _recover_tool_call(
             name=name,
         )
     except ToolExecutionError as exc:
+        # The Python traceback is for operators, never the chat surface — log it
+        # server-side and hand the model a clean one-line reason. Streaming the
+        # raw traceback used to dump internal paths + stack frames into the
+        # conversation (错误信息不泄敏感数据 / 不向用户暴露程序栈).
+        logger.warning(
+            "tool %r execution failed: %s\n%s",
+            name,
+            exc.original,
+            exc.traceback_summary,
+        )
         return ToolMessage(
-            content=(
-                f"[tool-error] Execution failed for '{name}': {exc.original}\n"
-                f"Traceback:\n{exc.traceback_summary}"
-            ),
+            content=f"[tool-error] 工具 '{name}' 执行失败：{exc.original}",  # noqa: RUF001
             tool_call_id=tc_id,
             name=name,
         )

@@ -77,6 +77,26 @@ async def test_blocked_without_reason_sets_only_flag() -> None:
 
 
 @pytest.mark.asyncio
+async def test_execution_error_is_clean_with_no_traceback() -> None:
+    # A tool that raises must surface a clean one-line reason to the chat — never
+    # the raw Python traceback / stack frames (those go to the server log only).
+    def boom(path: str) -> str:
+        """A tool that always fails."""
+        raise RuntimeError("kaboom")
+
+    out = await tool_executor_node(
+        _state_with_call("boom", {"path": "x"}),
+        {"configurable": {"tool_registry": _registry_with(boom, "boom")}},
+    )
+    content = out["messages"][0].content
+    assert "[tool-error]" in content
+    assert "boom" in content
+    assert "kaboom" in content
+    assert "Traceback" not in content
+    assert 'File "' not in content
+
+
+@pytest.mark.asyncio
 async def test_normal_dict_carries_no_block_kwargs() -> None:
     def fetchy(url: str) -> dict[str, Any]:
         """Fetch a URL."""
