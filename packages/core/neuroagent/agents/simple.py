@@ -200,6 +200,31 @@ def _get_tool_calls(response: Any) -> list[dict[str, Any]]:
         return []
 
 
+# A per-turn reminder to narrate before acting. The capability prompt carries the
+# same rule, but a single instruction at the TOP loses salience as the context
+# grows with tool results — GLM (and peers) then fire tools with empty content,
+# so the trace becomes a bare stack of tool rows with no "why". Re-asserting it as
+# the LAST message before every tool-deciding call keeps it salient each turn
+# (verified against the live model: recovers turns that otherwise drop narration).
+# It is NOT added to persistent state — only to the per-call message list — so it
+# never accumulates across turns.
+_NARRATION_REMINDER = (
+    "Reminder: if you call a tool now, first write ONE short sentence in your "
+    "message content (in the user's language) saying what you're about to do next "
+    "and why — then make the call. Do not leave content empty when calling a tool. "
+    "Keep it to a sentence; do not restate the whole plan or expose your full "
+    "chain-of-thought."
+)
+
+
+def _inject_narration_reminder(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Append the per-turn narrate-before-acting reminder as the final message."""
+    reminder: dict[str, Any] = {"role": "system", "content": _NARRATION_REMINDER}
+    return [*list(messages), reminder]
+
+
 def _inject_working_summary(
     messages: list[dict[str, Any]],
     working: WorkingMemory | None,
@@ -489,6 +514,8 @@ def build_simple_agent(
             tenant_id,
             user_id,
         )
+        # Last, most-salient instruction: narrate before acting, this turn.
+        llm_messages = _inject_narration_reminder(llm_messages)
 
         response = await _call_llm(
             llm_provider,
