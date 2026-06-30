@@ -17,6 +17,21 @@ from neuroagent.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
+def _error_tool_message(content: str, tool_call_id: str, name: str) -> ToolMessage:
+    """A failed tool call, marked ``status="error"``.
+
+    The status is the structured outcome signal: the SSE layer reads it
+    (``is_error``) so a failed tool renders red in the UI instead of a green
+    success. The *content* still carries a clean, model-readable reason so the
+    LLM can self-correct on the next turn. (LangChain drops ``status`` when the
+    message is converted back to the OpenAI tool role, so the model only sees the
+    reason text — never the status flag.)
+    """
+    return ToolMessage(
+        content=content, tool_call_id=tool_call_id, name=name, status="error"
+    )
+
+
 def _last_assistant_tool_calls(state: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract tool_calls from the last assistant message, if any."""
     messages = state.get("messages", [])
@@ -97,22 +112,20 @@ async def _recover_tool_call(
 
     # 1. Sanitize / malformed guard
     if not name:
-        return ToolMessage(
-            content="[tool-error] Missing tool name. Please provide a valid function name.",
-            tool_call_id=tc_id,
-            name="unknown",
+        return _error_tool_message(
+            "[tool-error] Missing tool name. Please provide a valid function name.",
+            tc_id,
+            "unknown",
         )
 
     # 2. Tool not found → list available tools
     if not registry.has_tool(name):
         available = registry.list_tools()
-        return ToolMessage(
-            content=(
-                f"[tool-error] Tool '{name}' not found. "
-                f"Available tools: {', '.join(available)}"
-            ),
-            tool_call_id=tc_id,
-            name=name,
+        return _error_tool_message(
+            f"[tool-error] Tool '{name}' not found. "
+            f"Available tools: {', '.join(available)}",
+            tc_id,
+            name,
         )
 
     # 3. Parse JSON arguments
@@ -123,40 +136,34 @@ async def _recover_tool_call(
         params = schema.get("parameters", {})
         props = params.get("properties", {})
         expected = ", ".join(props.keys()) if props else "(none defined)"
-        return ToolMessage(
-            content=(
-                f"[tool-error] Invalid JSON in arguments for '{name}': {exc}. "
-                f"Expected parameters: {expected}"
-            ),
-            tool_call_id=tc_id,
-            name=name,
+        return _error_tool_message(
+            f"[tool-error] Invalid JSON in arguments for '{name}': {exc}. "
+            f"Expected parameters: {expected}",
+            tc_id,
+            name,
         )
 
     # 4. Schema validation
     try:
         _validate_args(name, args, registry)
     except ToolArgsValidationError as exc:
-        return ToolMessage(
-            content=(
-                f"[tool-error] Argument validation failed for '{name}': "
-                f"{'; '.join(exc.errors)}. Please correct and retry."
-            ),
-            tool_call_id=tc_id,
-            name=name,
+        return _error_tool_message(
+            f"[tool-error] Argument validation failed for '{name}': "
+            f"{'; '.join(exc.errors)}. Please correct and retry.",
+            tc_id,
+            name,
         )
 
     # 5. Execute with circuit-breaker / exception recovery
     try:
         result = await registry.execute(name, args_raw)
     except ToolCircuitBreakerError as exc:
-        return ToolMessage(
-            content=(
-                f"[tool-error] Circuit breaker open for '{name}' "
-                f"({exc.fail_count}/{exc.threshold} consecutive failures). "
-                f"Please use an alternative tool or wait."
-            ),
-            tool_call_id=tc_id,
-            name=name,
+        return _error_tool_message(
+            f"[tool-error] Circuit breaker open for '{name}' "
+            f"({exc.fail_count}/{exc.threshold} consecutive failures). "
+            f"Please use an alternative tool or wait.",
+            tc_id,
+            name,
         )
     except ToolExecutionError as exc:
         # The Python traceback is for operators, never the chat surface — log it
@@ -169,10 +176,10 @@ async def _recover_tool_call(
             exc.original,
             exc.traceback_summary,
         )
-        return ToolMessage(
-            content=f"[tool-error] 工具 '{name}' 执行失败：{exc.original}",  # noqa: RUF001
-            tool_call_id=tc_id,
-            name=name,
+        return _error_tool_message(
+            f"[tool-error] 工具 '{name}' 执行失败：{exc.original}",  # noqa: RUF001
+            tc_id,
+            name,
         )
 
     # Lift a tool's structured soft-block signal onto the message so the SSE layer
@@ -232,10 +239,10 @@ async def tool_executor_node(
         sanitized = _sanitize_tool_call(tc)
         if sanitized is None:
             tool_messages.append(
-                ToolMessage(
-                    content="[tool-error] Malformed tool_call structure.",
-                    tool_call_id=tc.get("id", ""),
-                    name="unknown",
+                _error_tool_message(
+                    "[tool-error] Malformed tool_call structure.",
+                    tc.get("id", ""),
+                    "unknown",
                 )
             )
             continue
@@ -245,13 +252,11 @@ async def tool_executor_node(
             decision = tool_policy.decide(name)
             if decision == "deny":
                 tool_messages.append(
-                    ToolMessage(
-                        content=(
-                            f"[policy-denied] Tool '{name}' is not permitted "
-                            "for this agent. Use one of the allowed tools instead."
-                        ),
-                        tool_call_id=sanitized["id"],
-                        name=name,
+                    _error_tool_message(
+                        f"[policy-denied] Tool '{name}' is not permitted "
+                        "for this agent. Use one of the allowed tools instead.",
+                        sanitized["id"],
+                        name,
                     )
                 )
                 continue

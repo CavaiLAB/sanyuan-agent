@@ -88,16 +88,38 @@ async def test_execution_error_is_clean_with_no_traceback() -> None:
         _state_with_call("boom", {"path": "x"}),
         {"configurable": {"tool_registry": _registry_with(boom, "boom")}},
     )
-    content = out["messages"][0].content
+    msg = out["messages"][0]
+    content = msg.content
     assert "[tool-error]" in content
     assert "boom" in content
     assert "kaboom" in content
     assert "Traceback" not in content
     assert 'File "' not in content
+    # The failure is marked status="error" so the SSE layer flags is_error and the
+    # UI renders it red instead of a green success.
+    assert msg.status == "error"
 
 
 @pytest.mark.asyncio
-async def test_normal_dict_carries_no_block_kwargs() -> None:
+async def test_unknown_tool_marks_status_error() -> None:
+    # The model requested a tool that isn't registered: a structured error listing
+    # the available tools, marked status="error" — never a crash, never a success.
+    def echo(msg: str) -> str:
+        """Echo."""
+        return msg
+
+    out = await tool_executor_node(
+        _state_with_call("no_such_tool", {}),
+        {"configurable": {"tool_registry": _registry_with(echo, "echo")}},
+    )
+    msg = out["messages"][0]
+    assert "[tool-error]" in msg.content
+    assert "not found" in msg.content
+    assert msg.status == "error"
+
+
+@pytest.mark.asyncio
+async def test_successful_tool_has_no_error_status() -> None:
     def fetchy(url: str) -> dict[str, Any]:
         """Fetch a URL."""
         return {"url": url, "title": "ok", "content": "hello", "blocked": False}
@@ -106,4 +128,7 @@ async def test_normal_dict_carries_no_block_kwargs() -> None:
         _state_with_call("fetchy", {"url": "https://x.com/p"}),
         {"configurable": {"tool_registry": _registry_with(fetchy, "fetchy")}},
     )
-    assert not out["messages"][0].additional_kwargs.get("blocked")
+    msg = out["messages"][0]
+    assert not msg.additional_kwargs.get("blocked")
+    # A successful tool must NOT be flagged as an error (default status).
+    assert msg.status != "error"
