@@ -1,12 +1,78 @@
 """Multi-agent orchestration — delegate work to worker agents.
 
-The first building block is *sub-agent delegation*: a worker agent declared as
-an :class:`neuroagent.config.AgentSpec` runs in an isolated state seeded only
-with the delegated task, and ``make_subagent_tool`` exposes that as an
-LLM-callable tool so an orchestrator agent can hand work off like any other
-tool call.
+Two layers build on the same execution unit:
+
+*Sub-agent delegation* — a worker agent declared as an
+:class:`neuroagent.config.AgentSpec` runs in an isolated state seeded only
+with the delegated task (:func:`run_subagent`), and ``make_subagent_tool``
+exposes that as an LLM-callable tool so an orchestrator agent can hand work
+off like any other tool call.
+
+*Workflow orchestration* — a declarative :class:`WorkflowSpec` (phases →
+concurrent work items → optional synthesis) executed by
+:class:`WorkflowEngine`, where every work item is a real sub-agent run
+(:class:`SubagentRunner`) and progress streams as :class:`WorkflowEvent`
+frames. The sub-agent is the execution unit; the workflow is the
+orchestration topology over those units.
 """
 
-from .subagent import make_subagent_tool, run_subagent
+from .subagent import SubagentOutcome, make_subagent_tool, run_subagent, run_subagent_outcome
+from .workflow import (
+    EVENT_AGENT_RUN_COMPLETED,
+    EVENT_AGENT_RUN_STARTED,
+    EVENT_PHASE_COMPLETED,
+    EVENT_PHASE_STARTED,
+    EVENT_SYNTHESIS_STARTED,
+    EVENT_WORK_ITEM_STARTED,
+    EVENT_WORKFLOW_COMPLETED,
+    EVENT_WORKFLOW_FAILED,
+    EVENT_WORKFLOW_STARTED,
+    WORKFLOW_EVENT_TYPES,
+    WORKFLOW_TERMINAL_STATUSES,
+    PhaseRun,
+    PhaseSpec,
+    SynthesisSpec,
+    WorkflowEvent,
+    WorkflowRun,
+    WorkflowSpec,
+    WorkItemRun,
+    WorkItemSpec,
+)
+from .workflow_engine import (
+    SubagentRunner,
+    WorkerResult,
+    WorkerRunner,
+    WorkflowEngine,
+    build_synthesis_brief,
+)
 
-__all__ = ["make_subagent_tool", "run_subagent"]
+__all__ = [
+    "EVENT_AGENT_RUN_COMPLETED",
+    "EVENT_AGENT_RUN_STARTED",
+    "EVENT_PHASE_COMPLETED",
+    "EVENT_PHASE_STARTED",
+    "EVENT_SYNTHESIS_STARTED",
+    "EVENT_WORKFLOW_COMPLETED",
+    "EVENT_WORKFLOW_FAILED",
+    "EVENT_WORKFLOW_STARTED",
+    "EVENT_WORK_ITEM_STARTED",
+    "WORKFLOW_EVENT_TYPES",
+    "WORKFLOW_TERMINAL_STATUSES",
+    "PhaseRun",
+    "PhaseSpec",
+    "SubagentOutcome",
+    "SubagentRunner",
+    "SynthesisSpec",
+    "WorkItemRun",
+    "WorkItemSpec",
+    "WorkerResult",
+    "WorkerRunner",
+    "WorkflowEngine",
+    "WorkflowEvent",
+    "WorkflowRun",
+    "WorkflowSpec",
+    "build_synthesis_brief",
+    "make_subagent_tool",
+    "run_subagent",
+    "run_subagent_outcome",
+]

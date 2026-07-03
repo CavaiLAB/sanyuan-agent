@@ -16,7 +16,7 @@ import litellm
 import pytest
 from neuroagent.config import AgentSpec
 from neuroagent.models import LLMProvider, LLMProviderRegistry
-from neuroagent.orchestration import make_subagent_tool, run_subagent
+from neuroagent.orchestration import make_subagent_tool, run_subagent, run_subagent_outcome
 from neuroagent.tools.registry import ToolRegistry
 
 
@@ -86,6 +86,45 @@ class TestRunSubagent:
         assert sent[0]["content"].startswith("You are a focused worker")
         user_msgs = [m for m in sent if m["role"] == "user"]
         assert user_msgs == [{"role": "user", "content": "do the thing"}]
+
+
+class TestRunSubagentOutcome:
+    async def test_returns_answer_and_usage(
+        self, llm_registry: LLMProviderRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        acompletion = AsyncMock(return_value=_final("structured answer"))
+        monkeypatch.setattr(litellm, "acompletion", acompletion)
+
+        outcome = await run_subagent_outcome(
+            _spec(),
+            "quantify yourself",
+            tool_registry=ToolRegistry(),
+            llm_registry=llm_registry,
+        )
+
+        assert outcome.answer == "structured answer"
+        # _final reports prompt_tokens=3 / completion_tokens=2; the outcome
+        # carries the camelCase wire shape with totalTokens derived.
+        assert outcome.usage == {
+            "promptTokens": 3,
+            "completionTokens": 2,
+            "totalTokens": 5,
+        }
+
+    async def test_run_subagent_string_contract_unchanged(
+        self, llm_registry: LLMProviderRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(litellm, "acompletion", AsyncMock(return_value=_final("plain")))
+
+        answer = await run_subagent(
+            _spec(),
+            "keep it simple",
+            tool_registry=ToolRegistry(),
+            llm_registry=llm_registry,
+        )
+
+        assert isinstance(answer, str)
+        assert answer == "plain"
 
 
 class TestMakeSubagentTool:

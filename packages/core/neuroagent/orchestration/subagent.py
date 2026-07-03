@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from neuroagent.config import AgentSpec, load_agent_from_spec
@@ -13,6 +14,19 @@ from neuroagent.skills.registry import SkillRegistry
 from neuroagent.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SubagentOutcome:
+    """Structured result of one worker run: the answer plus token accounting.
+
+    ``usage`` follows the agent-state camelCase convention
+    (``promptTokens`` / ``completionTokens``) with ``totalTokens`` derived at
+    this boundary, so orchestration layers never re-derive it differently.
+    """
+
+    answer: str
+    usage: dict[str, int] = field(default_factory=dict)
 
 
 def _final_answer(state: dict[str, Any]) -> str:
@@ -31,7 +45,7 @@ def _final_answer(state: dict[str, Any]) -> str:
     return ""
 
 
-async def run_subagent(
+async def run_subagent_outcome(
     spec: AgentSpec,
     task: str,
     *,
@@ -39,12 +53,14 @@ async def run_subagent(
     llm_registry: LLMProviderRegistry,
     skill_registry: SkillRegistry | None = None,
     **agent_kwargs: Any,
-) -> str:
-    """Run the worker declared by *spec* on *task*; return its final answer.
+) -> SubagentOutcome:
+    """Run the worker declared by *spec* on *task*; return answer + usage.
 
     The worker runs in a fresh, isolated state seeded only with its own system
     prompt and the delegated *task* — no parent conversation leaks in, only the
-    final answer comes out.
+    final answer (and its token accounting) comes out. Usage is the run's
+    cumulative state total (summed across reasoning turns by the graph's
+    usage reducer).
     """
     loaded = load_agent_from_spec(
         spec,
@@ -64,7 +80,43 @@ async def run_subagent(
         "usage": {},
     }
     result = await loaded.graph.ainvoke(state)
-    return _final_answer(result)
+    raw_usage = result.get("usage") or {}
+    prompt_tokens = int(raw_usage.get("promptTokens", 0) or 0)
+    completion_tokens = int(raw_usage.get("completionTokens", 0) or 0)
+    return SubagentOutcome(
+        answer=_final_answer(result),
+        usage={
+            "promptTokens": prompt_tokens,
+            "completionTokens": completion_tokens,
+            "totalTokens": prompt_tokens + completion_tokens,
+        },
+    )
+
+
+async def run_subagent(
+    spec: AgentSpec,
+    task: str,
+    *,
+    tool_registry: ToolRegistry,
+    llm_registry: LLMProviderRegistry,
+    skill_registry: SkillRegistry | None = None,
+    **agent_kwargs: Any,
+) -> str:
+    """Run the worker declared by *spec* on *task*; return its final answer.
+
+    Thin wrapper over :func:`run_subagent_outcome` for callers that only need
+    the answer (e.g. the ``delegate_to_*`` tool contract, which must stay a
+    plain string).
+    """
+    outcome = await run_subagent_outcome(
+        spec,
+        task,
+        tool_registry=tool_registry,
+        llm_registry=llm_registry,
+        skill_registry=skill_registry,
+        **agent_kwargs,
+    )
+    return outcome.answer
 
 
 def _slug(name: str) -> str:
