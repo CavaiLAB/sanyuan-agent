@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import collections
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from opentelemetry import metrics
 
@@ -28,6 +29,15 @@ class LLMCallUsage:
     total_tokens: int
     timestamp: float
     tenant_id: str
+    # Usage-ledger attribution (ADR di-saas-billing-metering D-3). project_id /
+    # consumer_id may be unknown at enqueue time — the flush side falls back to
+    # the tenant's default project. record_id is minted once at creation and
+    # survives flush retries, so ledger idempotency keys derived from it dedupe
+    # redeliveries instead of double-metering.
+    project_id: str | None = None
+    consumer_id: str | None = None
+    trace_id: str | None = None
+    record_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
 # OTel metric -----------------------------------------------------------------
