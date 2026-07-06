@@ -10,9 +10,10 @@ broken runner, or an empty answer all surface as loud failures.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import litellm
 import pytest
@@ -32,11 +33,16 @@ from neuroagent.orchestration import (
     SubagentRunner,
     SynthesisSpec,
     WorkerResult,
+    WorkerToolBinding,
     WorkflowEngine,
     WorkflowEvent,
     WorkflowSpec,
     WorkItemSpec,
 )
+from neuroagent.sandbox.abc import SandboxResult, SandboxSession
+from neuroagent.tools.bash import BashToolProvider
+from neuroagent.tools.catalog import DEFAULT_TOOL_SETS
+from neuroagent.tools.file_ops import FileOpsToolProvider
 from neuroagent.tools.registry import ToolRegistry
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -601,3 +607,269 @@ class TestSubagentRunnerProductionPath:
         for call in acompletion.await_args_list:
             assert call.kwargs["messages"][0]["role"] == "system"
             assert "focused worker" in call.kwargs["messages"][0]["content"]
+
+
+# ── Worker tools: sandbox-bound, isolated, never faked ───────────────────────
+
+
+def _tool_worker_spec(name: str = "ops") -> AgentSpec:
+    return AgentSpec(
+        name=name,
+        system_prompt="You operate inside the sandbox. Answer concisely.",
+        llm_provider="higress",
+        tool_sets=["sandbox_workspace"],
+        providers=["bash", "filesystem"],
+    )
+
+
+def _tool_workflow(item_count: int = 1) -> WorkflowSpec:
+    return WorkflowSpec(
+        name="toolwf",
+        workers={"ops": _tool_worker_spec()},
+        phases=[
+            PhaseSpec(
+                name="operate",
+                items=[
+                    WorkItemSpec(id=f"t{i}", worker="ops", brief=f"do task {i}")
+                    for i in range(item_count)
+                ],
+            )
+        ],
+    )
+
+
+class FakeSandboxProvider:
+    """Duck-typed ISandboxProvider: records every call, executes nothing on the host."""
+
+    def __init__(self) -> None:
+        self.shell_calls: list[tuple[str, str]] = []
+        self.files: dict[str, str] = {}
+
+    async def run_shell(self, session_id: str, cmd: str) -> SandboxResult:
+        self.shell_calls.append((session_id, cmd))
+        return SandboxResult(success=True, stdout=f"sandboxed:{cmd}", exit_code=0)
+
+    async def read_file(self, session_id: str, path: str) -> str:
+        return self.files.get(path, "")
+
+    async def write_file(self, session_id: str, path: str, content: str) -> None:
+        self.files[path] = content
+
+    async def list_dir(self, session_id: str, path: str = ".") -> list[str]:
+        return sorted(self.files)
+
+    async def upload_file(self, session_id: str, local_path: str, remote_path: str) -> None:
+        raise AssertionError("upload_file must not be reachable from workflow workers")
+
+
+class RecordingBinder:
+    """WorkerToolBinder test double: one FakeSandboxProvider per bind."""
+
+    def __init__(self) -> None:
+        self.bind_calls: list[tuple[str, str]] = []  # (worker, run_id)
+        self.close_calls: list[str] = []
+        self.providers: dict[str, FakeSandboxProvider] = {}
+
+    async def __call__(self, spec: AgentSpec, run_id: str) -> WorkerToolBinding:
+        self.bind_calls.append((spec.name, run_id))
+        fake = FakeSandboxProvider()
+        self.providers[run_id] = fake
+        session = SandboxSession(
+            id=f"sess-{run_id[:8]}", created_at=datetime.now(UTC), workdir="/workspace"
+        )
+
+        async def aclose() -> None:
+            self.close_calls.append(run_id)
+
+        return WorkerToolBinding(
+            providers={
+                "bash": BashToolProvider(fake, session),
+                "filesystem": FileOpsToolProvider(fake, session),
+            },
+            aclose=aclose,
+        )
+
+
+class _MockFunction:
+    def __init__(self, name: str, arguments: str) -> None:
+        self.name = name
+        self.arguments = arguments
+
+
+class _MockToolCall:
+    def __init__(self, tc_id: str, name: str, arguments: str) -> None:
+        self.id = tc_id
+        self.type = "function"
+        self.function = _MockFunction(name, arguments)
+
+
+def _tool_call_response(name: str, arguments: str) -> Any:
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content="", tool_calls=[_MockToolCall("tc-1", name, arguments)]
+                )
+            )
+        ],
+        usage=SimpleNamespace(prompt_tokens=3, completion_tokens=2),
+    )
+
+
+class TestWorkerTools:
+    def _runner(
+        self, llm_registry: LLMProviderRegistry, binder: RecordingBinder | None
+    ) -> SubagentRunner:
+        return SubagentRunner(
+            tool_registry=ToolRegistry(),
+            llm_registry=llm_registry,
+            tool_binder=binder,
+            tool_sets=DEFAULT_TOOL_SETS,
+        )
+
+    async def test_pure_reasoning_worker_never_touches_binder(
+        self, llm_registry: LLMProviderRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(litellm, "acompletion", AsyncMock(return_value=_final("ok")))
+        binder = RecordingBinder()
+        engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+        run, _events = await engine.run_to_completion(_two_item_spec())
+
+        assert run.status == "succeeded"
+        assert binder.bind_calls == []
+
+    async def test_tool_worker_without_binder_fails_not_falls_back(
+        self, llm_registry: LLMProviderRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # LLM must never even be reached: the refusal happens at the binder gate.
+        acompletion = AsyncMock(return_value=_final("unreachable"))
+        monkeypatch.setattr(litellm, "acompletion", acompletion)
+        engine = WorkflowEngine(runner=self._runner(llm_registry, binder=None))
+        run, events = await engine.run_to_completion(_tool_workflow())
+
+        assert run.status == "failed"
+        item = run.phases[0].items[0]
+        assert item.status == "failed"
+        assert "sandbox boundary" in item.error
+        assert acompletion.await_count == 0
+        assert _types(events)[-1] == EVENT_WORKFLOW_FAILED
+
+    async def test_each_item_gets_isolated_binding_and_close(
+        self, llm_registry: LLMProviderRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(litellm, "acompletion", AsyncMock(return_value=_final("done")))
+        binder = RecordingBinder()
+        engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+        run, _events = await engine.run_to_completion(_tool_workflow(item_count=2))
+
+        assert run.status == "succeeded"
+        run_ids = {item.run_id for phase in run.phases for item in phase.items}
+        assert len(run_ids) == 2
+        assert {run_id for _, run_id in binder.bind_calls} == run_ids
+        assert set(binder.close_calls) == run_ids
+        # One distinct provider instance per item — nothing shared.
+        assert len(binder.providers) == 2
+
+    async def test_binding_closed_even_when_worker_fails(
+        self, llm_registry: LLMProviderRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(litellm, "acompletion", AsyncMock(side_effect=RuntimeError("llm down")))
+        binder = RecordingBinder()
+        engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+        run, _events = await engine.run_to_completion(_tool_workflow())
+
+        assert run.phases[0].items[0].status == "failed"
+        assert len(binder.close_calls) == 1
+
+    async def test_agent_run_started_reports_tool_sets(
+        self, llm_registry: LLMProviderRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(litellm, "acompletion", AsyncMock(return_value=_final("done")))
+        binder = RecordingBinder()
+        engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+        _run, events = await engine.run_to_completion(_tool_workflow())
+
+        started = _events_of(events, EVENT_AGENT_RUN_STARTED)[0]
+        assert started.data["tool_sets"] == ["sandbox_workspace"]
+
+        # Pure-reasoning workers honestly report no tool sets.
+        _run2, events2 = await engine.run_to_completion(_two_item_spec())
+        assert all(
+            event.data["tool_sets"] == [] for event in _events_of(events2, EVENT_AGENT_RUN_STARTED)
+        )
+
+    async def test_tools_execute_inside_bound_provider(
+        self, llm_registry: LLMProviderRegistry
+    ) -> None:
+        # The decisive boundary proof: the worker's bash call lands in the
+        # bound FakeSandboxProvider (session-scoped), never on the host.
+        binder = RecordingBinder()
+        responses = [
+            # The graph registers tools by callable __name__, so the LLM-facing
+            # bash tool name is "tool_bash" (same as the chat path).
+            _tool_call_response("tool_bash", '{"cmd": "echo sandboxed"}'),
+            _final("task complete"),
+        ]
+        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+            engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+            run, _events = await engine.run_to_completion(_tool_workflow())
+
+        item = run.phases[0].items[0]
+        assert item.status == "succeeded"
+        assert item.result == "task complete"
+        fake = binder.providers[item.run_id]
+        assert len(fake.shell_calls) == 1
+        session_id, cmd = fake.shell_calls[0]
+        assert cmd == "echo sandboxed"
+        assert session_id.startswith("sess-")
+
+
+class TestSynthesisWorkerTools:
+    def _runner(self, llm_registry: LLMProviderRegistry, binder: RecordingBinder) -> SubagentRunner:
+        return SubagentRunner(
+            tool_registry=ToolRegistry(),
+            llm_registry=llm_registry,
+            tool_binder=binder,
+            tool_sets=DEFAULT_TOOL_SETS,
+        )
+
+    async def test_tool_synthesis_binds_isolated_session_and_reports_tool_sets(
+        self, llm_registry: LLMProviderRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(litellm, "acompletion", AsyncMock(return_value=_final("merged")))
+        binder = RecordingBinder()
+        spec = WorkflowSpec(
+            name="toolsynth",
+            workers={
+                "alpha": _worker_spec("alpha"),  # pure-reasoning work item
+                "ops_editor": _tool_worker_spec("ops_editor"),  # tool synthesis
+            },
+            phases=[
+                PhaseSpec(
+                    name="p",
+                    items=[WorkItemSpec(id="i1", worker="alpha", brief="investigate")],
+                )
+            ],
+            synthesis=SynthesisSpec(worker="ops_editor", instruction="merge in the sandbox"),
+        )
+        engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+        run, events = await engine.run_to_completion(spec)
+
+        assert run.status == "succeeded"
+        assert run.synthesis_result == "merged"
+        # Only the synthesis worker declared tools → exactly one binding, on
+        # the synthesis run id, and it was closed.
+        assert binder.bind_calls == [("ops_editor", run.synthesis_run_id)]
+        assert binder.close_calls == [run.synthesis_run_id]
+
+        started = _events_of(events, EVENT_SYNTHESIS_STARTED)[0]
+        assert started.data["tool_sets"] == ["sandbox_workspace"]
+        assert started.data["run_id"] == run.synthesis_run_id
+
+    async def test_pure_reasoning_synthesis_reports_empty_tool_sets(self) -> None:
+        runner = RecordingRunner({"alpha": "a", "beta": "b", "editor": "report"})
+        engine = WorkflowEngine(runner=runner)
+        _run, events = await engine.run_to_completion(_two_item_spec(synthesis=True))
+
+        started = _events_of(events, EVENT_SYNTHESIS_STARTED)[0]
+        assert started.data["tool_sets"] == []

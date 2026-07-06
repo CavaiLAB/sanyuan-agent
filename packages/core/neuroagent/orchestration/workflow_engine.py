@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -27,6 +28,7 @@ from pydantic import BaseModel, Field
 from neuroagent.config import AgentSpec
 from neuroagent.models import LLMProviderRegistry
 from neuroagent.skills.registry import SkillRegistry
+from neuroagent.tools.provider import ToolProvider
 from neuroagent.tools.registry import ToolRegistry
 
 from .subagent import run_subagent_outcome
@@ -69,12 +71,36 @@ class WorkerRunner(Protocol):
     async def run(self, spec: AgentSpec, brief: str, *, run_id: str) -> WorkerResult: ...
 
 
+@dataclass(frozen=True, slots=True)
+class WorkerToolBinding:
+    """Per-work-item tool context bound to one isolated sandbox session.
+
+    ``providers`` maps provider names (as referenced by ``AgentSpec.providers``)
+    to session-bound ToolProviders; ``aclose`` tears the session down. One
+    binding is created per work item and never shared, so concurrent items
+    cannot pollute each other's sandbox state.
+    """
+
+    providers: Mapping[str, ToolProvider]
+    aclose: Callable[[], Awaitable[None]]
+
+
+# Binds (worker spec, agent run id) → an isolated tool context. The binder is
+# where the sandbox/provider boundary lives: whatever it returns is the ONLY
+# execution surface a tool-declaring worker gets.
+WorkerToolBinder = Callable[[AgentSpec, str], Awaitable[WorkerToolBinding]]
+
+
 class SubagentRunner:
     """Production runner: one work item = one isolated ``run_subagent`` run.
 
     Requires live registries up front — constructing without them (or trying
     to smuggle a per-item ``run_id`` through ``agent_kwargs``) raises, so a
     misconfigured workflow fails loudly instead of pretending to delegate.
+
+    Tool-declaring workers additionally require a *tool_binder*: without one
+    the delegation FAILS — tools are never silently dropped and never run
+    outside the binder-provided (sandbox-backed) providers.
     """
 
     def __init__(
@@ -83,6 +109,8 @@ class SubagentRunner:
         tool_registry: ToolRegistry,
         llm_registry: LLMProviderRegistry,
         skill_registry: SkillRegistry | None = None,
+        tool_binder: WorkerToolBinder | None = None,
+        tool_sets: Mapping[str, Sequence[str]] | None = None,
         **agent_kwargs: Any,
     ) -> None:
         if tool_registry is None or llm_registry is None:
@@ -92,22 +120,54 @@ class SubagentRunner:
             )
         if "run_id" in agent_kwargs:
             raise ValueError("run_id is minted per work item; do not pass it via agent_kwargs")
+        if "tool_providers" in agent_kwargs:
+            raise ValueError(
+                "tool_providers are bound per work item by the tool_binder; "
+                "do not pass them via agent_kwargs"
+            )
         self._tool_registry = tool_registry
         self._llm_registry = llm_registry
         self._skill_registry = skill_registry
+        self._tool_binder = tool_binder
+        self._tool_sets = tool_sets
         self._agent_kwargs = agent_kwargs
 
     async def run(self, spec: AgentSpec, brief: str, *, run_id: str) -> WorkerResult:
-        outcome = await run_subagent_outcome(
-            spec,
-            brief,
-            tool_registry=self._tool_registry,
-            llm_registry=self._llm_registry,
-            skill_registry=self._skill_registry,
-            run_id=run_id,
-            **self._agent_kwargs,
-        )
+        if spec.tool_sets or spec.tools:
+            outcome = await self._run_with_tools(spec, brief, run_id=run_id)
+        else:
+            outcome = await run_subagent_outcome(
+                spec,
+                brief,
+                tool_registry=self._tool_registry,
+                llm_registry=self._llm_registry,
+                skill_registry=self._skill_registry,
+                run_id=run_id,
+                **self._agent_kwargs,
+            )
         return WorkerResult(answer=outcome.answer, run_id=run_id, usage=outcome.usage)
+
+    async def _run_with_tools(self, spec: AgentSpec, brief: str, *, run_id: str) -> Any:
+        if self._tool_binder is None:
+            raise RuntimeError(
+                f"worker {spec.name!r} declares tools but no tool binder is "
+                "configured — refusing to run tools outside the sandbox boundary"
+            )
+        binding = await self._tool_binder(spec, run_id)
+        try:
+            return await run_subagent_outcome(
+                spec,
+                brief,
+                tool_registry=self._tool_registry,
+                llm_registry=self._llm_registry,
+                skill_registry=self._skill_registry,
+                tool_sets=self._tool_sets,
+                tool_providers=dict(binding.providers),
+                run_id=run_id,
+                **self._agent_kwargs,
+            )
+        finally:
+            await binding.aclose()
 
 
 def build_synthesis_brief(instruction: str, items: Iterable[WorkItemRun]) -> str:
@@ -265,6 +325,7 @@ class WorkflowEngine:
             )
             synthesis_run_id = uuid.uuid4().hex
             run.synthesis_run_id = synthesis_run_id
+            synthesis_spec = spec.workers[spec.synthesis.worker]
             yield self._event(
                 run,
                 EVENT_SYNTHESIS_STARTED,
@@ -272,11 +333,14 @@ class WorkflowEngine:
                     "worker": spec.synthesis.worker,
                     "run_id": synthesis_run_id,
                     "brief": synthesis_brief,
+                    # Same audit field as agent_run_started: a synthesis worker
+                    # may declare tools too, and the wire must show it.
+                    "tool_sets": list(synthesis_spec.tool_sets),
                 },
             )
             try:
                 result = await self._runner.run(
-                    spec.workers[spec.synthesis.worker],
+                    synthesis_spec,
                     synthesis_brief,
                     run_id=synthesis_run_id,
                 )
@@ -345,6 +409,7 @@ class WorkflowEngine:
                                 "worker": item_run.worker,
                                 "llm_provider": worker_spec.llm_provider,
                                 "model": worker_spec.model,
+                                "tool_sets": list(worker_spec.tool_sets),
                             },
                         )
                     )

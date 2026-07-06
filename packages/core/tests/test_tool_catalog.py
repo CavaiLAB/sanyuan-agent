@@ -8,9 +8,7 @@ from neuroagent.tools.computer_use import FakeComputerUseClient
 
 class TestDefaultToolSets:
     def test_standard_set_is_a_subset_of_named_families(self) -> None:
-        families = set().union(
-            *(set(v) for k, v in DEFAULT_TOOL_SETS.items() if k != "standard")
-        )
+        families = set().union(*(set(v) for k, v in DEFAULT_TOOL_SETS.items() if k != "standard"))
         assert set(DEFAULT_TOOL_SETS["standard"]) <= families
 
     def test_sets_are_tuples_of_names(self) -> None:
@@ -41,3 +39,18 @@ class TestBuiltinProviders:
         # The provided tool is a member of its canonical set, so an AgentSpec can
         # select it via tool_sets=["automation"] against DEFAULT_TOOL_SETS.
         assert spec.name in DEFAULT_TOOL_SETS["automation"]
+
+
+class TestSandboxWorkspaceSet:
+    def test_members_are_session_bound_and_exclude_host_upload(self) -> None:
+        # The workflow-facing controlled set: shell + file ops served by
+        # BashToolProvider/FileOpsToolProvider against ONE sandbox session.
+        assert DEFAULT_TOOL_SETS["sandbox_workspace"] == (
+            "bash",
+            "read_file",
+            "write_file",
+            "list_dir",
+        )
+        # upload_file reads from the gateway host's local disk — it must never
+        # be part of a sandbox-scoped worker set.
+        assert "upload_file" not in DEFAULT_TOOL_SETS["sandbox_workspace"]

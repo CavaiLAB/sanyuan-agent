@@ -61,6 +61,11 @@ DEFAULT_TOOL_SETS: dict[str, tuple[str, ...]] = {
     "knowledge": ("knowledge_search", "remember_this", "recall_memories"),
     "artifact": ("artifact_write",),
     "skills": ("execute_skills",),
+    # Shell + file ops bound to ONE isolated workspace-sandbox session (the
+    # ISandboxProvider path: BashToolProvider + FileOpsToolProvider). Excludes
+    # upload_file deliberately — it reads from the gateway host's local disk,
+    # which a sandbox-scoped worker must never do.
+    "sandbox_workspace": ("bash", "read_file", "write_file", "list_dir"),
     # A pragmatic everyday default: web + light filesystem + sandbox shell +
     # artifacts + skills. Omits external generators and device control, which a
     # deployment opts into deliberately.

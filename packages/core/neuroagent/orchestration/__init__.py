@@ -42,6 +42,8 @@ from .workflow_engine import (
     SubagentRunner,
     WorkerResult,
     WorkerRunner,
+    WorkerToolBinder,
+    WorkerToolBinding,
     WorkflowEngine,
     build_synthesis_brief,
 )
@@ -67,6 +69,8 @@ __all__ = [
     "WorkItemSpec",
     "WorkerResult",
     "WorkerRunner",
+    "WorkerToolBinder",
+    "WorkerToolBinding",
     "WorkflowEngine",
     "WorkflowEvent",
     "WorkflowRun",
