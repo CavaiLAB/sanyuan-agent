@@ -245,6 +245,8 @@ EVENT_WORKFLOW_STARTED = "workflow_started"
 EVENT_PHASE_STARTED = "phase_started"
 EVENT_WORK_ITEM_STARTED = "work_item_started"
 EVENT_AGENT_RUN_STARTED = "agent_run_started"
+EVENT_AGENT_TOOL_CALL = "agent_tool_call"
+EVENT_AGENT_TOOL_RESULT = "agent_tool_result"
 EVENT_AGENT_RUN_COMPLETED = "agent_run_completed"
 EVENT_PHASE_COMPLETED = "phase_completed"
 EVENT_SYNTHESIS_STARTED = "synthesis_started"
@@ -256,6 +258,8 @@ WORKFLOW_EVENT_TYPES: tuple[str, ...] = (
     EVENT_PHASE_STARTED,
     EVENT_WORK_ITEM_STARTED,
     EVENT_AGENT_RUN_STARTED,
+    EVENT_AGENT_TOOL_CALL,
+    EVENT_AGENT_TOOL_RESULT,
     EVENT_AGENT_RUN_COMPLETED,
     EVENT_PHASE_COMPLETED,
     EVENT_SYNTHESIS_STARTED,
@@ -266,10 +270,13 @@ WORKFLOW_EVENT_TYPES: tuple[str, ...] = (
 # Ordering invariants (stable across runs, even with concurrent items):
 #   workflow_started precedes everything; phase_started precedes that phase's
 #   item events; each item emits work_item_started → agent_run_started →
-#   agent_run_completed in that order; phase_completed follows all of its
-#   items' agent_run_completed; synthesis_started (if any) follows the last
-#   phase_completed; exactly one terminal event (workflow_completed XOR
-#   workflow_failed) comes last.
+#   (agent_tool_call → agent_tool_result)* → agent_run_completed in that
+#   order; phase_completed follows all of its items' agent_run_completed;
+#   synthesis_started (if any) follows the last phase_completed, and any
+#   synthesis tool events fall between synthesis_started and the terminal
+#   event; exactly one terminal event (workflow_completed XOR workflow_failed)
+#   comes last. Tool events appear ONLY for workers that declared tool_sets
+#   and actually called tools — pure-reasoning runs emit none.
 
 
 class WorkflowEvent(BaseModel):

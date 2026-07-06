@@ -31,10 +31,12 @@ from neuroagent.skills.registry import SkillRegistry
 from neuroagent.tools.provider import ToolProvider
 from neuroagent.tools.registry import ToolRegistry
 
-from .subagent import run_subagent_outcome
+from .subagent import ToolEventObserver, run_subagent_outcome
 from .workflow import (
     EVENT_AGENT_RUN_COMPLETED,
     EVENT_AGENT_RUN_STARTED,
+    EVENT_AGENT_TOOL_CALL,
+    EVENT_AGENT_TOOL_RESULT,
     EVENT_PHASE_COMPLETED,
     EVENT_PHASE_STARTED,
     EVENT_SYNTHESIS_STARTED,
@@ -66,9 +68,22 @@ class WorkerResult(BaseModel):
 
 
 class WorkerRunner(Protocol):
-    """The execution seam: turns (worker spec, brief) into a real agent run."""
+    """The execution seam: turns (worker spec, brief) into a real agent run.
 
-    async def run(self, spec: AgentSpec, brief: str, *, run_id: str) -> WorkerResult: ...
+    *tool_event_observer* (optional, synchronous) receives structured
+    ``{"kind": "tool_call" | "tool_result", ...}`` events while the worker
+    runs — the engine relays them onto the workflow event stream. A runner
+    that executes no tools simply never calls it.
+    """
+
+    async def run(
+        self,
+        spec: AgentSpec,
+        brief: str,
+        *,
+        run_id: str,
+        tool_event_observer: ToolEventObserver | None = None,
+    ) -> WorkerResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,10 +147,21 @@ class SubagentRunner:
         self._tool_sets = tool_sets
         self._agent_kwargs = agent_kwargs
 
-    async def run(self, spec: AgentSpec, brief: str, *, run_id: str) -> WorkerResult:
+    async def run(
+        self,
+        spec: AgentSpec,
+        brief: str,
+        *,
+        run_id: str,
+        tool_event_observer: ToolEventObserver | None = None,
+    ) -> WorkerResult:
         if spec.tool_sets or spec.tools:
-            outcome = await self._run_with_tools(spec, brief, run_id=run_id)
+            outcome = await self._run_with_tools(
+                spec, brief, run_id=run_id, tool_event_observer=tool_event_observer
+            )
         else:
+            # Pure-reasoning workers keep the single-shot ainvoke path and
+            # cannot produce tool events, so the observer is not threaded in.
             outcome = await run_subagent_outcome(
                 spec,
                 brief,
@@ -147,7 +173,14 @@ class SubagentRunner:
             )
         return WorkerResult(answer=outcome.answer, run_id=run_id, usage=outcome.usage)
 
-    async def _run_with_tools(self, spec: AgentSpec, brief: str, *, run_id: str) -> Any:
+    async def _run_with_tools(
+        self,
+        spec: AgentSpec,
+        brief: str,
+        *,
+        run_id: str,
+        tool_event_observer: ToolEventObserver | None = None,
+    ) -> Any:
         if self._tool_binder is None:
             raise RuntimeError(
                 f"worker {spec.name!r} declares tools but no tool binder is "
@@ -163,6 +196,7 @@ class SubagentRunner:
                 skill_registry=self._skill_registry,
                 tool_sets=self._tool_sets,
                 tool_providers=dict(binding.providers),
+                tool_event_observer=tool_event_observer,
                 run_id=run_id,
                 **self._agent_kwargs,
             )
@@ -338,12 +372,46 @@ class WorkflowEngine:
                     "tool_sets": list(synthesis_spec.tool_sets),
                 },
             )
-            try:
-                result = await self._runner.run(
+            # The runner runs as a task so its tool events can be relayed onto
+            # the stream while synthesis is still thinking (same queue+sentinel
+            # shape as the phase fan-out, for a single worker).
+            synth_queue: asyncio.Queue[WorkflowEvent | None] = asyncio.Queue()
+            synthesis_worker = spec.synthesis.worker
+
+            def observe_synthesis_tool(tool_event: dict[str, Any]) -> None:
+                synth_queue.put_nowait(
+                    self._tool_event(
+                        run,
+                        "synthesis",
+                        tool_event,
+                        worker=synthesis_worker,
+                        run_id=synthesis_run_id,
+                    )
+                )
+
+            runner_task = asyncio.create_task(
+                self._runner.run(
                     synthesis_spec,
                     synthesis_brief,
                     run_id=synthesis_run_id,
+                    tool_event_observer=observe_synthesis_tool,
                 )
+            )
+            runner_task.add_done_callback(lambda _task: synth_queue.put_nowait(None))
+            try:
+                while True:
+                    synth_event = await synth_queue.get()
+                    if synth_event is None:
+                        break
+                    yield synth_event
+            finally:
+                # Generator closed mid-synthesis (client gone): don't orphan
+                # the in-flight synthesis run.
+                if not runner_task.done():
+                    runner_task.cancel()
+                    await asyncio.gather(runner_task, return_exceptions=True)
+            try:
+                result = runner_task.result()
                 if not result.answer.strip():
                     raise RuntimeError("synthesis worker returned no final answer")
             except Exception as exc:
@@ -413,8 +481,32 @@ class WorkflowEngine:
                             },
                         )
                     )
+
+                    def observe_tool(
+                        tool_event: dict[str, Any],
+                        *,
+                        _item: WorkItemRun = item_run,
+                        _run_id: str = run_id,
+                    ) -> None:
+                        queue.put_nowait(
+                            self._tool_event(
+                                run,
+                                "work_item",
+                                tool_event,
+                                item_id=_item.item_id,
+                                phase=_item.phase,
+                                worker=_item.worker,
+                                run_id=_run_id,
+                            )
+                        )
+
                     try:
-                        result = await self._runner.run(worker_spec, item_run.brief, run_id=run_id)
+                        result = await self._runner.run(
+                            worker_spec,
+                            item_run.brief,
+                            run_id=run_id,
+                            tool_event_observer=observe_tool,
+                        )
                         # Usage is recorded on both outcomes: an empty answer
                         # still burned the reported tokens.
                         item_run.usage = _normalize_usage(result.usage)
@@ -503,3 +595,25 @@ class WorkflowEngine:
 
     def _event(self, run: WorkflowRun, event_type: str, data: dict[str, Any]) -> WorkflowEvent:
         return WorkflowEvent(type=event_type, workflow_run_id=run.id, data=data)
+
+    def _tool_event(
+        self,
+        run: WorkflowRun,
+        scope: str,
+        tool_event: dict[str, Any],
+        **context: Any,
+    ) -> WorkflowEvent:
+        """Project one runner tool event onto the workflow stream.
+
+        ``scope`` says which orchestration domain the event belongs to
+        (``work_item`` carries item_id/phase/worker/run_id, ``synthesis``
+        carries worker/run_id); the tool payload keeps the chat-frame field
+        shapes so consumers can reuse their existing renderers.
+        """
+        event_type = (
+            EVENT_AGENT_TOOL_CALL
+            if tool_event.get("kind") == "tool_call"
+            else EVENT_AGENT_TOOL_RESULT
+        )
+        payload = {key: value for key, value in tool_event.items() if key != "kind"}
+        return self._event(run, event_type, {"scope": scope, **context, **payload})

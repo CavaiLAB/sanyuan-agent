@@ -22,6 +22,8 @@ from neuroagent.models import LLMProvider, LLMProviderRegistry
 from neuroagent.orchestration import (
     EVENT_AGENT_RUN_COMPLETED,
     EVENT_AGENT_RUN_STARTED,
+    EVENT_AGENT_TOOL_CALL,
+    EVENT_AGENT_TOOL_RESULT,
     EVENT_PHASE_COMPLETED,
     EVENT_PHASE_STARTED,
     EVENT_SYNTHESIS_STARTED,
@@ -97,7 +99,14 @@ class RecordingRunner:
         self.outcomes = outcomes
         self.calls: list[tuple[str, str, str]] = []  # (worker, brief, run_id)
 
-    async def run(self, spec: AgentSpec, brief: str, *, run_id: str) -> WorkerResult:
+    async def run(
+        self,
+        spec: AgentSpec,
+        brief: str,
+        *,
+        run_id: str,
+        tool_event_observer: Any = None,
+    ) -> WorkerResult:
         self.calls.append((spec.name, brief, run_id))
         outcome = self.outcomes[spec.name]
         if isinstance(outcome, Exception):
@@ -223,7 +232,14 @@ class TestFanOutJoin:
         # cancel scope) is a BaseException — the item must still end terminal
         # and honest, never let the phase join fabricate a success.
         class LeakyRunner:
-            async def run(self, spec: AgentSpec, brief: str, *, run_id: str) -> WorkerResult:
+            async def run(
+                self,
+                spec: AgentSpec,
+                brief: str,
+                *,
+                run_id: str,
+                tool_event_observer: Any = None,
+            ) -> WorkerResult:
                 if spec.name == "alpha":
                     raise asyncio.CancelledError("leaked cancel scope")
                 return WorkerResult(answer=f"done:{spec.name}", run_id=run_id)
@@ -254,7 +270,14 @@ class TestFanOutJoin:
         cancelled = asyncio.Event()
 
         class HangingRunner:
-            async def run(self, spec: AgentSpec, brief: str, *, run_id: str) -> WorkerResult:
+            async def run(
+                self,
+                spec: AgentSpec,
+                brief: str,
+                *,
+                run_id: str,
+                tool_event_observer: Any = None,
+            ) -> WorkerResult:
                 started.set()
                 try:
                     await asyncio.Event().wait()  # hangs until cancelled
@@ -280,7 +303,14 @@ class TestFanOutJoin:
         barrier = asyncio.Barrier(2)
 
         class BarrierRunner:
-            async def run(self, spec: AgentSpec, brief: str, *, run_id: str) -> WorkerResult:
+            async def run(
+                self,
+                spec: AgentSpec,
+                brief: str,
+                *,
+                run_id: str,
+                tool_event_observer: Any = None,
+            ) -> WorkerResult:
                 await barrier.wait()
                 return WorkerResult(answer=f"done:{spec.name}", run_id=run_id)
 
@@ -393,7 +423,14 @@ class UsageRunner:
     def __init__(self, usages: dict[str, dict[str, int] | Exception]) -> None:
         self.usages = usages
 
-    async def run(self, spec: AgentSpec, brief: str, *, run_id: str) -> WorkerResult:
+    async def run(
+        self,
+        spec: AgentSpec,
+        brief: str,
+        *,
+        run_id: str,
+        tool_event_observer: Any = None,
+    ) -> WorkerResult:
         outcome = self.usages.get(spec.name, {})
         if isinstance(outcome, Exception):
             raise outcome
@@ -873,3 +910,146 @@ class TestSynthesisWorkerTools:
 
         started = _events_of(events, EVENT_SYNTHESIS_STARTED)[0]
         assert started.data["tool_sets"] == []
+
+
+class TestToolEventProjection:
+    """Graph tool calls project onto the workflow stream, scoped and ordered."""
+
+    def _runner(self, llm_registry: LLMProviderRegistry, binder: RecordingBinder) -> SubagentRunner:
+        return SubagentRunner(
+            tool_registry=ToolRegistry(),
+            llm_registry=llm_registry,
+            tool_binder=binder,
+            tool_sets=DEFAULT_TOOL_SETS,
+        )
+
+    async def test_work_item_tool_events_are_projected(
+        self, llm_registry: LLMProviderRegistry
+    ) -> None:
+        binder = RecordingBinder()
+        responses = [
+            _tool_call_response("tool_bash", '{"cmd": "echo observe-me"}'),
+            _final("task complete"),
+        ]
+        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+            engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+            run, events = await engine.run_to_completion(_tool_workflow())
+
+        item = run.phases[0].items[0]
+        assert item.status == "succeeded"
+
+        calls = _events_of(events, EVENT_AGENT_TOOL_CALL)
+        results = _events_of(events, EVENT_AGENT_TOOL_RESULT)
+        assert len(calls) == 1 and len(results) == 1
+
+        call = calls[0].data
+        assert call["scope"] == "work_item"
+        assert call["item_id"] == item.item_id
+        assert call["phase"] == "operate"
+        assert call["worker"] == "ops"
+        assert call["run_id"] == item.run_id
+        assert call["name"] == "tool_bash"
+        assert call["arguments"] == '{"cmd": "echo observe-me"}'
+        assert call["tool_call_id"] == "tc-1"
+
+        result = results[0].data
+        assert result["scope"] == "work_item"
+        assert result["run_id"] == item.run_id
+        assert result["tool_call_id"] == "tc-1"
+        assert result["is_error"] is False
+        # The result came from the bound fake sandbox provider, verbatim.
+        assert "sandboxed:echo observe-me" in result["content"]
+
+        # Ordering: started < tool_call < tool_result < completed.
+        types = _types(events)
+        started_idx = types.index(EVENT_AGENT_RUN_STARTED)
+        call_idx = types.index(EVENT_AGENT_TOOL_CALL)
+        result_idx = types.index(EVENT_AGENT_TOOL_RESULT)
+        completed_idx = types.index(EVENT_AGENT_RUN_COMPLETED)
+        assert started_idx < call_idx < result_idx < completed_idx
+
+        # The streamed (astream) path accounts usage exactly like ainvoke:
+        # two LLM turns x (3+2) tokens.
+        assert item.usage == {"promptTokens": 6, "completionTokens": 4, "totalTokens": 10}
+
+    async def test_synthesis_tool_events_are_projected_and_binding_closed(
+        self, llm_registry: LLMProviderRegistry
+    ) -> None:
+        binder = RecordingBinder()
+        spec = WorkflowSpec(
+            name="toolsynth",
+            workers={
+                "alpha": _worker_spec("alpha"),
+                "ops_editor": _tool_worker_spec("ops_editor"),
+            },
+            phases=[
+                PhaseSpec(
+                    name="p",
+                    items=[WorkItemSpec(id="i1", worker="alpha", brief="investigate")],
+                )
+            ],
+            synthesis=SynthesisSpec(worker="ops_editor", instruction="merge in the sandbox"),
+        )
+        responses = [
+            _final("alpha findings"),  # pure-reasoning work item
+            _tool_call_response("tool_bash", '{"cmd": "wc -l notes.md"}'),
+            _final("merged"),
+        ]
+        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+            engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+            run, events = await engine.run_to_completion(spec)
+
+        assert run.status == "succeeded"
+        assert run.synthesis_result == "merged"
+
+        calls = _events_of(events, EVENT_AGENT_TOOL_CALL)
+        results = _events_of(events, EVENT_AGENT_TOOL_RESULT)
+        assert len(calls) == 1 and len(results) == 1
+        for data in (calls[0].data, results[0].data):
+            assert data["scope"] == "synthesis"
+            assert data["worker"] == "ops_editor"
+            assert data["run_id"] == run.synthesis_run_id
+            assert "item_id" not in data
+        assert "sandboxed:wc -l notes.md" in results[0].data["content"]
+
+        # Tool events sit between synthesis_started and the terminal frame,
+        # and the synthesis binding was closed.
+        types = _types(events)
+        assert (
+            types.index(EVENT_SYNTHESIS_STARTED)
+            < types.index(EVENT_AGENT_TOOL_CALL)
+            < types.index(EVENT_AGENT_TOOL_RESULT)
+            < types.index(EVENT_WORKFLOW_COMPLETED)
+        )
+        assert binder.close_calls == [run.synthesis_run_id]
+
+    async def test_pure_reasoning_workflow_emits_no_tool_events(
+        self, llm_registry: LLMProviderRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(litellm, "acompletion", AsyncMock(return_value=_final("ok")))
+        binder = RecordingBinder()
+        engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+        _run, events = await engine.run_to_completion(_two_item_spec(synthesis=True))
+
+        types = _types(events)
+        assert EVENT_AGENT_TOOL_CALL not in types
+        assert EVENT_AGENT_TOOL_RESULT not in types
+
+    async def test_tool_worker_with_failing_tool_reports_error_result(
+        self, llm_registry: LLMProviderRegistry
+    ) -> None:
+        # An unknown tool name produces an error ToolMessage in the graph —
+        # the projected result must carry is_error, not fake success.
+        binder = RecordingBinder()
+        responses = [
+            _tool_call_response("no_such_tool", "{}"),
+            _final("recovered"),
+        ]
+        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+            engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+            run, events = await engine.run_to_completion(_tool_workflow())
+
+        assert run.phases[0].items[0].status == "succeeded"
+        results = _events_of(events, EVENT_AGENT_TOOL_RESULT)
+        assert len(results) == 1
+        assert results[0].data["is_error"] is True

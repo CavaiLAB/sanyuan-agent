@@ -16,10 +16,18 @@ frames. The sub-agent is the execution unit; the workflow is the
 orchestration topology over those units.
 """
 
-from .subagent import SubagentOutcome, make_subagent_tool, run_subagent, run_subagent_outcome
+from .subagent import (
+    SubagentOutcome,
+    ToolEventObserver,
+    make_subagent_tool,
+    run_subagent,
+    run_subagent_outcome,
+)
 from .workflow import (
     EVENT_AGENT_RUN_COMPLETED,
     EVENT_AGENT_RUN_STARTED,
+    EVENT_AGENT_TOOL_CALL,
+    EVENT_AGENT_TOOL_RESULT,
     EVENT_PHASE_COMPLETED,
     EVENT_PHASE_STARTED,
     EVENT_SYNTHESIS_STARTED,
@@ -51,6 +59,8 @@ from .workflow_engine import (
 __all__ = [
     "EVENT_AGENT_RUN_COMPLETED",
     "EVENT_AGENT_RUN_STARTED",
+    "EVENT_AGENT_TOOL_CALL",
+    "EVENT_AGENT_TOOL_RESULT",
     "EVENT_PHASE_COMPLETED",
     "EVENT_PHASE_STARTED",
     "EVENT_SYNTHESIS_STARTED",
@@ -65,6 +75,7 @@ __all__ = [
     "SubagentOutcome",
     "SubagentRunner",
     "SynthesisSpec",
+    "ToolEventObserver",
     "WorkItemRun",
     "WorkItemSpec",
     "WorkerResult",

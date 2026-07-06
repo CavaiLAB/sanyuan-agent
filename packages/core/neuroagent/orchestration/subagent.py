@@ -29,6 +29,87 @@ class SubagentOutcome:
     usage: dict[str, int] = field(default_factory=dict)
 
 
+# Structured tool-progress callback: receives one dict per graph tool event,
+# ``{"kind": "tool_call" | "tool_result", ...}`` with the same field shapes the
+# chat SSE layer uses (id/name/arguments; tool_call_id/name/content/is_error/
+# blocked/block_reason). Synchronous by design so callers can relay onto an
+# asyncio.Queue without awaiting inside the graph loop.
+ToolEventObserver = Callable[[dict[str, Any]], None]
+
+
+def _tool_events_from_update(node_name: str, update: Any) -> list[dict[str, Any]]:
+    """Translate one graph node update into structured tool events.
+
+    Mirrors the chat SSE translation (``gateway/sse.py``): a ``plan`` update
+    whose last assistant message carries tool_calls yields one ``tool_call``
+    event each; a ``tool_executor`` update yields one ``tool_result`` per tool
+    message (dict or LangChain ToolMessage), carrying the honest outcome flags
+    (``is_error`` / ``blocked`` / ``block_reason``).
+    """
+    if not isinstance(update, dict):
+        return []
+    events: list[dict[str, Any]] = []
+    if node_name == "plan":
+        messages = update.get("messages") or []
+        if not messages:
+            return []
+        msg = messages[-1]
+        tool_calls = (
+            msg.get("tool_calls") if isinstance(msg, dict) else getattr(msg, "tool_calls", None)
+        )
+        for tc in tool_calls or []:
+            if isinstance(tc, dict):
+                fn = tc.get("function", {}) or {}
+                events.append(
+                    {
+                        "kind": "tool_call",
+                        "tool_call_id": tc.get("id", ""),
+                        "name": fn.get("name", ""),
+                        "arguments": fn.get("arguments", ""),
+                    }
+                )
+            else:
+                fn = getattr(tc, "function", None)
+                events.append(
+                    {
+                        "kind": "tool_call",
+                        "tool_call_id": getattr(tc, "id", ""),
+                        "name": getattr(fn, "name", ""),
+                        "arguments": getattr(fn, "arguments", ""),
+                    }
+                )
+    elif node_name == "tool_executor":
+        for msg in update.get("messages") or []:
+            if isinstance(msg, dict):
+                if msg.get("role") != "tool" and not msg.get("tool_call_id"):
+                    continue
+                tool_call_id = msg.get("tool_call_id", "")
+                name = msg.get("name", "")
+                content = msg.get("content", "")
+                is_error = msg.get("status") == "error"
+                extra: dict[str, Any] = msg
+            else:
+                tool_call_id = getattr(msg, "tool_call_id", None)
+                if not tool_call_id:
+                    continue
+                name = getattr(msg, "name", "") or ""
+                content = getattr(msg, "content", "")
+                is_error = getattr(msg, "status", None) == "error"
+                extra = getattr(msg, "additional_kwargs", None) or {}
+            event: dict[str, Any] = {
+                "kind": "tool_result",
+                "tool_call_id": tool_call_id,
+                "name": name,
+                "content": str(content),
+                "is_error": bool(is_error),
+                "blocked": bool(extra.get("blocked")),
+            }
+            if extra.get("block_reason"):
+                event["block_reason"] = str(extra["block_reason"])
+            events.append(event)
+    return events
+
+
 def _final_answer(state: dict[str, Any]) -> str:
     """Pull the worker's final answer: the last assistant message with no tool_calls."""
     for msg in reversed(state.get("messages", [])):
@@ -52,6 +133,7 @@ async def run_subagent_outcome(
     tool_registry: ToolRegistry,
     llm_registry: LLMProviderRegistry,
     skill_registry: SkillRegistry | None = None,
+    tool_event_observer: ToolEventObserver | None = None,
     **agent_kwargs: Any,
 ) -> SubagentOutcome:
     """Run the worker declared by *spec* on *task*; return answer + usage.
@@ -61,6 +143,12 @@ async def run_subagent_outcome(
     final answer (and its token accounting) comes out. Usage is the run's
     cumulative state total (summed across reasoning turns by the graph's
     usage reducer).
+
+    With a *tool_event_observer* the run streams the graph (``astream``
+    updates) and relays each tool call/result as a structured event while it
+    happens — the observability seam for orchestration layers. Without one,
+    the original single-shot ``ainvoke`` path is used, byte-for-byte
+    unchanged. Both paths return the same outcome for the same run.
     """
     loaded = load_agent_from_spec(
         spec,
@@ -79,12 +167,38 @@ async def run_subagent_outcome(
         "working": None,
         "usage": {},
     }
-    result = await loaded.graph.ainvoke(state)
-    raw_usage = result.get("usage") or {}
+    if tool_event_observer is None:
+        result = await loaded.graph.ainvoke(state)
+        raw_usage = result.get("usage") or {}
+        messages = result.get("messages", [])
+    else:
+        # Streamed path: accumulate what ainvoke's reducers would have —
+        # messages are appended per node, usage deltas come from the
+        # plan/finalize turns (same accounting as the chat SSE layer).
+        messages = []
+        usage_total = {"promptTokens": 0, "completionTokens": 0}
+        async for chunk in loaded.graph.astream(state, stream_mode="updates"):
+            for node_name, update in chunk.items():
+                if not isinstance(update, dict):
+                    continue
+                for event in _tool_events_from_update(node_name, update):
+                    try:
+                        tool_event_observer(event)
+                    except Exception:
+                        logger.warning("tool event observer failed (non-blocking)", exc_info=True)
+                if node_name in ("plan", "finalize"):
+                    turn_usage = update.get("usage")
+                    if turn_usage:
+                        usage_total["promptTokens"] += int(turn_usage.get("promptTokens", 0) or 0)
+                        usage_total["completionTokens"] += int(
+                            turn_usage.get("completionTokens", 0) or 0
+                        )
+                messages.extend(update.get("messages") or [])
+        raw_usage = usage_total
     prompt_tokens = int(raw_usage.get("promptTokens", 0) or 0)
     completion_tokens = int(raw_usage.get("completionTokens", 0) or 0)
     return SubagentOutcome(
-        answer=_final_answer(result),
+        answer=_final_answer({"messages": messages}),
         usage={
             "promptTokens": prompt_tokens,
             "completionTokens": completion_tokens,
