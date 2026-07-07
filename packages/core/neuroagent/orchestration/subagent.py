@@ -29,10 +29,13 @@ class SubagentOutcome:
     usage: dict[str, int] = field(default_factory=dict)
 
 
-# Structured tool-progress callback: receives one dict per graph tool event,
+# Structured run-progress callback: receives one dict per graph event —
 # ``{"kind": "tool_call" | "tool_result", ...}`` with the same field shapes the
 # chat SSE layer uses (id/name/arguments; tool_call_id/name/content/is_error/
-# blocked/block_reason). Synchronous by design so callers can relay onto an
+# blocked/block_reason), plus ``{"kind": "usage", "usage": {promptTokens,
+# completionTokens, totalTokens}}`` after each completed reasoning turn — the
+# run's CUMULATIVE token accounting (never a delta, so a dropped frame cannot
+# corrupt the figure). Synchronous by design so callers can relay onto an
 # asyncio.Queue without awaiting inside the graph loop.
 ToolEventObserver = Callable[[dict[str, Any]], None]
 
@@ -193,6 +196,25 @@ async def run_subagent_outcome(
                         usage_total["completionTokens"] += int(
                             turn_usage.get("completionTokens", 0) or 0
                         )
+                        # One reasoning turn (one LLM call) just finished:
+                        # surface the run's cumulative accounting so the
+                        # orchestration layer can stream live per-agent tokens.
+                        try:
+                            tool_event_observer(
+                                {
+                                    "kind": "usage",
+                                    "usage": {
+                                        "promptTokens": usage_total["promptTokens"],
+                                        "completionTokens": usage_total["completionTokens"],
+                                        "totalTokens": usage_total["promptTokens"]
+                                        + usage_total["completionTokens"],
+                                    },
+                                }
+                            )
+                        except Exception:
+                            logger.warning(
+                                "usage event observer failed (non-blocking)", exc_info=True
+                            )
                 messages.extend(update.get("messages") or [])
         raw_usage = usage_total
     prompt_tokens = int(raw_usage.get("promptTokens", 0) or 0)

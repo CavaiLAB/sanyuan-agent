@@ -25,6 +25,7 @@ from .subagent import (
 )
 from .workflow import (
     EVENT_AGENT_RUN_COMPLETED,
+    EVENT_AGENT_RUN_PROGRESS,
     EVENT_AGENT_RUN_STARTED,
     EVENT_AGENT_TOOL_CALL,
     EVENT_AGENT_TOOL_RESULT,
@@ -58,6 +59,7 @@ from .workflow_engine import (
 
 __all__ = [
     "EVENT_AGENT_RUN_COMPLETED",
+    "EVENT_AGENT_RUN_PROGRESS",
     "EVENT_AGENT_RUN_STARTED",
     "EVENT_AGENT_TOOL_CALL",
     "EVENT_AGENT_TOOL_RESULT",

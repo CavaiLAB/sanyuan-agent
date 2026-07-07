@@ -34,6 +34,7 @@ from neuroagent.tools.registry import ToolRegistry
 from .subagent import ToolEventObserver, run_subagent_outcome
 from .workflow import (
     EVENT_AGENT_RUN_COMPLETED,
+    EVENT_AGENT_RUN_PROGRESS,
     EVENT_AGENT_RUN_STARTED,
     EVENT_AGENT_TOOL_CALL,
     EVENT_AGENT_TOOL_RESULT,
@@ -71,9 +72,11 @@ class WorkerRunner(Protocol):
     """The execution seam: turns (worker spec, brief) into a real agent run.
 
     *tool_event_observer* (optional, synchronous) receives structured
-    ``{"kind": "tool_call" | "tool_result", ...}`` events while the worker
-    runs — the engine relays them onto the workflow event stream. A runner
-    that executes no tools simply never calls it.
+    ``{"kind": "tool_call" | "tool_result" | "usage", ...}`` events while the
+    worker runs — the engine relays them onto the workflow event stream
+    (tool kinds → agent_tool_call/agent_tool_result, usage → the cumulative
+    agent_run_progress frame). A runner that executes no tools simply never
+    calls it.
     """
 
     async def run(
@@ -603,17 +606,23 @@ class WorkflowEngine:
         tool_event: dict[str, Any],
         **context: Any,
     ) -> WorkflowEvent:
-        """Project one runner tool event onto the workflow stream.
+        """Project one runner observer event onto the workflow stream.
 
         ``scope`` says which orchestration domain the event belongs to
         (``work_item`` carries item_id/phase/worker/run_id, ``synthesis``
-        carries worker/run_id); the tool payload keeps the chat-frame field
-        shapes so consumers can reuse their existing renderers.
+        carries worker/run_id). ``kind: usage`` becomes agent_run_progress
+        (the run's cumulative accounting after one reasoning turn); the tool
+        kinds keep the chat-frame field shapes so consumers can reuse their
+        existing renderers. This is the single choke point both observers
+        (work item and synthesis) route through — a new kind must be handled
+        here or it would be mis-projected as a tool result by the fallback.
         """
-        event_type = (
-            EVENT_AGENT_TOOL_CALL
-            if tool_event.get("kind") == "tool_call"
-            else EVENT_AGENT_TOOL_RESULT
-        )
+        kind = tool_event.get("kind")
+        if kind == "usage":
+            event_type = EVENT_AGENT_RUN_PROGRESS
+        elif kind == "tool_call":
+            event_type = EVENT_AGENT_TOOL_CALL
+        else:
+            event_type = EVENT_AGENT_TOOL_RESULT
         payload = {key: value for key, value in tool_event.items() if key != "kind"}
         return self._event(run, event_type, {"scope": scope, **context, **payload})

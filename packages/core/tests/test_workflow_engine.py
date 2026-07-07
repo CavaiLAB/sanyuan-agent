@@ -21,6 +21,7 @@ from neuroagent.config import AgentSpec
 from neuroagent.models import LLMProvider, LLMProviderRegistry
 from neuroagent.orchestration import (
     EVENT_AGENT_RUN_COMPLETED,
+    EVENT_AGENT_RUN_PROGRESS,
     EVENT_AGENT_RUN_STARTED,
     EVENT_AGENT_TOOL_CALL,
     EVENT_AGENT_TOOL_RESULT,
@@ -972,6 +973,42 @@ class TestToolEventProjection:
         # two LLM turns x (3+2) tokens.
         assert item.usage == {"promptTokens": 6, "completionTokens": 4, "totalTokens": 10}
 
+    async def test_work_item_progress_events_carry_cumulative_usage(
+        self, llm_registry: LLMProviderRegistry
+    ) -> None:
+        binder = RecordingBinder()
+        responses = [
+            _tool_call_response("tool_bash", '{"cmd": "echo observe-me"}'),
+            _final("task complete"),
+        ]
+        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+            engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
+            run, events = await engine.run_to_completion(_tool_workflow())
+
+        item = run.phases[0].items[0]
+        progress = _events_of(events, EVENT_AGENT_RUN_PROGRESS)
+        # One frame per completed reasoning turn (LLM call), CUMULATIVE — a
+        # dropped frame can never corrupt the figure.
+        assert [p.data["usage"] for p in progress] == [
+            {"promptTokens": 3, "completionTokens": 2, "totalTokens": 5},
+            {"promptTokens": 6, "completionTokens": 4, "totalTokens": 10},
+        ]
+        for p in progress:
+            assert p.data["scope"] == "work_item"
+            assert p.data["item_id"] == item.item_id
+            assert p.data["worker"] == "ops"
+            assert p.data["run_id"] == item.run_id
+
+        # Every progress frame falls between the run's started and completed.
+        types = _types(events)
+        started_idx = types.index(EVENT_AGENT_RUN_STARTED)
+        completed_idx = types.index(EVENT_AGENT_RUN_COMPLETED)
+        progress_idx = [i for i, t in enumerate(types) if t == EVENT_AGENT_RUN_PROGRESS]
+        assert all(started_idx < i < completed_idx for i in progress_idx)
+
+        # The final cumulative figure equals the settled per-item accounting.
+        assert progress[-1].data["usage"] == item.usage
+
     async def test_synthesis_tool_events_are_projected_and_binding_closed(
         self, llm_registry: LLMProviderRegistry
     ) -> None:
@@ -1012,6 +1049,19 @@ class TestToolEventProjection:
             assert "item_id" not in data
         assert "sandboxed:wc -l notes.md" in results[0].data["content"]
 
+        # Synthesis progress frames carry the synthesis scope + run id and the
+        # cumulative accounting of its two LLM turns.
+        progress = _events_of(events, EVENT_AGENT_RUN_PROGRESS)
+        synth_progress = [p for p in progress if p.data["scope"] == "synthesis"]
+        assert [p.data["usage"] for p in synth_progress] == [
+            {"promptTokens": 3, "completionTokens": 2, "totalTokens": 5},
+            {"promptTokens": 6, "completionTokens": 4, "totalTokens": 10},
+        ]
+        for p in synth_progress:
+            assert p.data["worker"] == "ops_editor"
+            assert p.data["run_id"] == run.synthesis_run_id
+            assert "item_id" not in p.data
+
         # Tool events sit between synthesis_started and the terminal frame,
         # and the synthesis binding was closed.
         types = _types(events)
@@ -1034,6 +1084,10 @@ class TestToolEventProjection:
         types = _types(events)
         assert EVENT_AGENT_TOOL_CALL not in types
         assert EVENT_AGENT_TOOL_RESULT not in types
+        # Pure-reasoning runs keep the ainvoke path: no observer, hence no
+        # per-turn progress frames either — their usage arrives once, on
+        # agent_run_completed.
+        assert EVENT_AGENT_RUN_PROGRESS not in types
 
     async def test_tool_worker_with_failing_tool_reports_error_result(
         self, llm_registry: LLMProviderRegistry
