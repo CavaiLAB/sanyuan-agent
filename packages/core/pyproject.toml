@@ -40,6 +40,10 @@ dependencies = [
     "respx>=0.23.1",
     "jsonschema>=4.23.0",
     "types-jsonschema>=4.26.0.20260408",
+    # memory/vector.py 顶层 import——是硬运行时依赖。此前靠 litellm/langchain 传递
+    # 带入,上游新版本掉链后 spark 镜像(uv pip install 现场解析,不走 lock)缺 numpy
+    # 直接 CrashLoop;显式声明防再犯。
+    "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]
@@ -51,7 +55,6 @@ dev = [
     "mypy>=1.11.0",
     "respx>=0.22.0",
     "sentence-transformers>=3.0.0",
-    "numpy>=1.26.0",
 ]
 
 [project.scripts]
