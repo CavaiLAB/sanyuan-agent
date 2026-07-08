@@ -261,6 +261,20 @@ class WorkflowEngine:
         run = self._new_run(spec, workflow_run_id)
         return self._execute(spec, run)
 
+    def execute_with_run(
+        self, spec: WorkflowSpec, *, workflow_run_id: str | None = None
+    ) -> tuple[WorkflowRun, AsyncGenerator[WorkflowEvent, None]]:
+        """:meth:`execute`, plus the live :class:`WorkflowRun` snapshot handle.
+
+        A detached-run registry needs the snapshot OUTSIDE the generator: an
+        async generator cannot yield on its close path, so when a run is
+        cancelled the registry synthesizes the ``workflow_cancelled`` terminal
+        frame itself — from this handle's ``usage_total()``/``summary()``
+        (ADR di-workflow-background-runs D1/D5).
+        """
+        run = self._new_run(spec, workflow_run_id)
+        return run, self._execute(spec, run)
+
     async def run_to_completion(
         self, spec: WorkflowSpec, *, workflow_run_id: str | None = None
     ) -> tuple[WorkflowRun, list[WorkflowEvent]]:

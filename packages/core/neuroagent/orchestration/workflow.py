@@ -31,9 +31,15 @@ from neuroagent.config import AgentSpec
 
 WorkItemStatus = Literal["planned", "running", "succeeded", "failed"]
 PhaseStatus = Literal["pending", "running", "succeeded", "partial", "failed"]
-WorkflowStatus = Literal["queued", "running", "succeeded", "partial", "failed"]
+# `cancelled` = an explicit stop (user cancel / TTL reaper) settled by the run
+# REGISTRY, not by the engine: an async generator cannot yield on its close
+# path, so the engine never emits the cancelled terminal itself (ADR
+# di-workflow-background-runs D1/D5).
+WorkflowStatus = Literal["queued", "running", "succeeded", "partial", "failed", "cancelled"]
 
-WORKFLOW_TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "partial", "failed"})
+WORKFLOW_TERMINAL_STATUSES: frozenset[str] = frozenset(
+    {"succeeded", "partial", "failed", "cancelled"}
+)
 
 
 # ── Specs (declarative, immutable inputs) ────────────────────────────────────
@@ -253,6 +259,10 @@ EVENT_PHASE_COMPLETED = "phase_completed"
 EVENT_SYNTHESIS_STARTED = "synthesis_started"
 EVENT_WORKFLOW_COMPLETED = "workflow_completed"
 EVENT_WORKFLOW_FAILED = "workflow_failed"
+# Synthesized by the run registry (never the engine — see WorkflowStatus note):
+# {reason, usage, summary}. usage is a FLOOR: in-flight items killed by the
+# cancel never reported theirs (the ledger truth stays in llm_call_costs).
+EVENT_WORKFLOW_CANCELLED = "workflow_cancelled"
 
 WORKFLOW_EVENT_TYPES: tuple[str, ...] = (
     EVENT_WORKFLOW_STARTED,
@@ -267,6 +277,7 @@ WORKFLOW_EVENT_TYPES: tuple[str, ...] = (
     EVENT_SYNTHESIS_STARTED,
     EVENT_WORKFLOW_COMPLETED,
     EVENT_WORKFLOW_FAILED,
+    EVENT_WORKFLOW_CANCELLED,
 )
 
 # Ordering invariants (stable across runs, even with concurrent items):
@@ -277,12 +288,15 @@ WORKFLOW_EVENT_TYPES: tuple[str, ...] = (
 #   items' agent_run_completed; synthesis_started (if any) follows the last
 #   phase_completed, and any synthesis tool/progress events fall between
 #   synthesis_started and the terminal event; exactly one terminal event
-#   (workflow_completed XOR workflow_failed) comes last. Tool and progress
-#   events appear ONLY on the streamed (observer) path, i.e. for workers that
-#   declared tool_sets — pure-reasoning runs emit none (their usage arrives
-#   once, on agent_run_completed). agent_run_progress carries the run's
-#   CUMULATIVE usage after each completed reasoning turn (one LLM call), not
-#   a delta — a dropped frame never corrupts the figure.
+#   (workflow_completed XOR workflow_failed XOR workflow_cancelled — the last
+#   synthesized by the run registry, never the engine) comes last. A stream
+#   that ends with no terminal frame remains an abnormal end (engine crash
+#   emits a bare `error` frame). Tool and progress events appear ONLY on the
+#   streamed (observer) path, i.e. for workers that declared tool_sets —
+#   pure-reasoning runs emit none (their usage arrives once, on
+#   agent_run_completed). agent_run_progress carries the run's CUMULATIVE
+#   usage after each completed reasoning turn (one LLM call), not a delta —
+#   a dropped frame never corrupts the figure.
 
 
 class WorkflowEvent(BaseModel):
