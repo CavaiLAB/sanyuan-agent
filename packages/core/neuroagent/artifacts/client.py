@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -34,6 +36,35 @@ def _is_allowed_content_type(content_type: str) -> bool:
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _sha256_b64(data: bytes) -> str:
+    """Base64 of the RAW digest bytes — the wire shape the C# ``byte[] Sha256``
+    field round-trips (System.Text.Json serialises ``byte[]`` as base64). Sending
+    the hex string here silently stores the wrong bytes."""
+    return base64.b64encode(hashlib.sha256(data).digest()).decode("ascii")
+
+
+def _is_guid(value: str | None) -> bool:
+    """True iff *value* parses as a GUID. Storage's ``ConversationId`` is a
+    ``Guid?``; a non-GUID (dev ids like ``c-demo-1``, or a run-id fallback) would
+    fail model binding, so callers omit it and let Storage default it to null."""
+    if not value:
+        return False
+    try:
+        uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
+def _object_key(filename: str, *, run_id: str | None) -> str:
+    """Storage-unique key for the stored object. ``ObjectKey`` is required and is
+    the UNIQUE index on the artifacts table, so two runs producing ``report.md``
+    must not collide — prefix with the run id (or a random id when absent). The
+    filename stays the leaf so downloads keep the original name."""
+    prefix = run_id or uuid.uuid4().hex
+    return f"artifacts/{prefix}/{filename}"
 
 
 def _apply_ownership_meta(
@@ -108,6 +139,7 @@ class StorageArtifactClient:
         run_id: str | None = None,
         user_id: str | None = None,
         origin_path: str | None = None,
+        conversation_id: str | None = None,
         ownership: dict[str, str] | None = None,
         kind: str | None = None,
         origin: str | None = None,
@@ -116,13 +148,15 @@ class StorageArtifactClient:
 
         Unlike ``create_artifact`` this method skips the content-type
         whitelist (the caller validates via extension blacklist) and
-        enforces a **100 MB** size limit.  Optional *run_id*, *user_id*,
-        and *origin_path* metadata are forwarded to the Storage service.
+        enforces a **100 MB** size limit.
 
-        *ownership* (C0.1 ``OwnershipLabels``: owner/department/tenant),
-        *kind* (``produced``/``uploaded``) and *origin* (``cloud``/``computer``)
-        are additive data-centralization tags (C0.1 ``Artifact``); forwarded
-        when present so the central artifact record carries owner/department/tenant.
+        *conversation_id* scopes the artifact to a conversation so the file
+        panel (which lists by ``conversation_id``) shows it — forwarded only
+        when it is a GUID (Storage's ``ConversationId`` is a ``Guid?``).
+        *ownership* (owner/department), *kind* (``produced``/``uploaded``) and
+        *origin* (``cloud``/``computer``) are additive data-centralization tags.
+        ``tenant_id`` is carried by the S2S token (the row's ``TenantId`` comes
+        from the token's tenant claim, not the body).
 
         Raises:
             ValueError: payload exceeds 100 MB.
@@ -134,66 +168,15 @@ class StorageArtifactClient:
                 f"Payload too large: {len(content_bytes)} bytes "
                 f"(max {_sandbox_max})",
             )
-
-        digest = _sha256(content_bytes)
-        token = await self._token()
-        headers: dict[str, str] = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
-
-        meta_payload: dict[str, Any] = {
-            "tenant_id": tenant_id,
-            "filename": filename,
-            "content_type": content_type,
-            "size": len(content_bytes),
-            "sha256": digest,
-        }
-        if run_id is not None:
-            meta_payload["run_id"] = run_id
-        if user_id is not None:
-            meta_payload["user_id"] = user_id
-        if origin_path is not None:
-            meta_payload["origin_path"] = origin_path
-        _apply_ownership_meta(meta_payload, ownership=ownership, kind=kind, origin=origin)
-
-        # Step 1 — request upload slot
-        meta_resp = await self._post_with_retry(
-            f"{self._base_url}/api/v1/storage/artifacts",
-            json=meta_payload,
-            headers=headers,
-        )
-        meta_resp.raise_for_status()
-        meta = meta_resp.json()
-        artifact_id: str = meta["artifact_id"]
-        upload_url: str = meta["upload_url"]
-
-        # Step 2 — upload bytes to presigned URL
-        upload_resp = await self._put_with_retry(
-            upload_url,
-            content=content_bytes,
-            headers={
-                "Content-Type": content_type,
-                "Content-Disposition": f'attachment; filename="{filename}"',
-            },
-        )
-        upload_resp.raise_for_status()
-
-        # Step 3 — complete
-        complete_resp = await self._post_with_retry(
-            f"{self._base_url}/api/v1/storage/artifacts/{artifact_id}/complete",
-            json={"sha256": digest},
-            headers=headers,
-        )
-        complete_resp.raise_for_status()
-        complete = complete_resp.json()
-
-        return ArtifactRef(
-            id=artifact_id,
-            url=complete.get("download_url", upload_url),
-            sha256=digest,
-            filename=filename,
+        return await self._upload(
+            content_bytes,
             content_type=content_type,
+            filename=filename,
+            run_id=run_id,
+            conversation_id=conversation_id,
+            ownership=ownership,
+            kind=kind,
+            origin=origin,
         )
 
     async def create_artifact(
@@ -203,16 +186,16 @@ class StorageArtifactClient:
         content_type: str,
         filename: str,
         *,
+        conversation_id: str | None = None,
         ownership: dict[str, str] | None = None,
         kind: str | None = None,
         origin: str | None = None,
     ) -> ArtifactRef:
         """Upload *content_bytes* as a new artifact and return its reference.
 
-        *ownership* (C0.1 ``OwnershipLabels``: owner/department/tenant), *kind*
-        (``produced``/``uploaded``) and *origin* (``cloud``/``computer``) are
-        additive data-centralization tags forwarded to the Storage service when
-        present, so the central artifact record carries owner/department/tenant.
+        *conversation_id* scopes the artifact (forwarded only when a GUID).
+        *ownership*/*kind*/*origin* are additive data-centralization tags. The
+        row's tenant comes from the S2S token, not *tenant_id* in the body.
 
         Raises:
             ValueError: if *content_type* is not in the whitelist or the payload
@@ -228,35 +211,62 @@ class StorageArtifactClient:
                 f"Payload too large: {len(content_bytes)} bytes "
                 f"(max {_MAX_SIZE_BYTES})",
             )
+        return await self._upload(
+            content_bytes,
+            content_type=content_type,
+            filename=filename,
+            run_id=None,
+            conversation_id=conversation_id,
+            ownership=ownership,
+            kind=kind,
+            origin=origin,
+        )
 
-        digest = _sha256(content_bytes)
+    async def _upload(
+        self,
+        content_bytes: bytes,
+        *,
+        content_type: str,
+        filename: str,
+        run_id: str | None,
+        conversation_id: str | None,
+        ownership: dict[str, str] | None,
+        kind: str | None,
+        origin: str | None,
+    ) -> ArtifactRef:
+        """The 3-step Storage upload: create metadata (presigned PUT slot) →
+        PUT bytes to object storage → complete (marks Ready). Wire shape matches
+        the deployed C# ``ArtifactEndpoints`` (camelCase, ``objectKey`` required,
+        ``sha256`` = base64 of raw digest, ``id``/``uploadUrl`` in responses)."""
         token = await self._token()
-        headers = {
+        headers: dict[str, str] = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
-
-        # Step 1 — request upload slot
+        object_key = _object_key(filename, run_id=run_id)
         meta_payload: dict[str, Any] = {
-            "tenant_id": tenant_id,
-            "filename": filename,
-            "content_type": content_type,
-            "size": len(content_bytes),
-            "sha256": digest,
+            "objectKey": object_key,
+            "sizeBytes": len(content_bytes),
+            "sha256": _sha256_b64(content_bytes),
+            "contentType": content_type,
         }
+        if _is_guid(conversation_id):
+            meta_payload["conversationId"] = conversation_id
         _apply_ownership_meta(meta_payload, ownership=ownership, kind=kind, origin=origin)
 
+        # Step 1 — create metadata row + presigned PUT URL
         meta_resp = await self._post_with_retry(
-            f"{self._base_url}/api/v1/storage/artifacts",
+            f"{self._base_url}/api/v1/artifacts",
             json=meta_payload,
             headers=headers,
         )
         meta_resp.raise_for_status()
         meta = meta_resp.json()
-        artifact_id: str = meta["artifact_id"]
-        upload_url: str = meta["upload_url"]
+        artifact_id: str = meta["id"]
+        upload_url: str = meta["uploadUrl"]
 
-        # Step 2 — upload bytes to presigned URL
+        # Step 2 — PUT bytes to the presigned object-storage URL (no S2S header;
+        # the presign carries its own auth)
         upload_resp = await self._put_with_retry(
             upload_url,
             content=content_bytes,
@@ -264,22 +274,35 @@ class StorageArtifactClient:
         )
         upload_resp.raise_for_status()
 
-        # Step 3 — complete
+        # Step 3 — complete (no body; id is the route param). Marks the row Ready.
         complete_resp = await self._post_with_retry(
-            f"{self._base_url}/api/v1/storage/artifacts/{artifact_id}/complete",
-            json={"sha256": digest},
+            f"{self._base_url}/api/v1/artifacts/{artifact_id}/complete",
+            json=None,
             headers=headers,
         )
         complete_resp.raise_for_status()
-        complete = complete_resp.json()
 
         return ArtifactRef(
             id=artifact_id,
-            url=complete.get("download_url", upload_url),
-            sha256=digest,
+            url=await self._download_url(artifact_id, headers),
+            sha256=_sha256(content_bytes),
             filename=filename,
             content_type=content_type,
         )
+
+    async def _download_url(self, artifact_id: str, headers: dict[str, str]) -> str:
+        """Fetch a browser-usable presigned GET URL for the SSE artifact frame.
+        Best-effort: if the download endpoint errors, fall back to the artifact
+        route so the frame still carries a resolvable id."""
+        try:
+            resp = await self._get_with_retry(
+                f"{self._base_url}/api/v1/artifacts/{artifact_id}/download",
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return str(resp.json().get("url") or "")
+        except (httpx.HTTPError, KeyError, ValueError):
+            return f"{self._base_url}/api/v1/artifacts/{artifact_id}/download"
 
     async def _post_with_retry(
         self,
@@ -311,6 +334,22 @@ class StorageArtifactClient:
             try:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     return await client.put(url, content=content, headers=headers)
+            except (httpx.NetworkError, httpx.TimeoutException) as exc:
+                last_exc = exc
+        raise last_exc  # type: ignore[misc]
+
+    async def _get_with_retry(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        """GET with one retry on network-level failures."""
+        last_exc: Exception | None = None
+        for _attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    return await client.get(url, headers=headers)
             except (httpx.NetworkError, httpx.TimeoutException) as exc:
                 last_exc = exc
         raise last_exc  # type: ignore[misc]

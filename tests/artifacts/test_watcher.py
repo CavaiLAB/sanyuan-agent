@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 from typing import Any
 
@@ -72,20 +73,18 @@ def watcher(
 
 
 def _mock_storage_upload() -> None:
-    """Register respx mocks for the 3-step Storage upload."""
-    respx.post(f"{_STORAGE_URL}/api/v1/storage/artifacts").mock(
-        return_value=httpx.Response(
-            200, json={"artifact_id": _ARTIFACT_ID, "upload_url": _UPLOAD_URL}
-        )
+    """Register respx mocks for the Storage upload (create → PUT → complete →
+    download-url lookup), matching the deployed C# ``ArtifactEndpoints`` contract."""
+    respx.post(f"{_STORAGE_URL}/api/v1/artifacts").mock(
+        return_value=httpx.Response(201, json={"id": _ARTIFACT_ID, "uploadUrl": _UPLOAD_URL})
     )
     respx.put(_UPLOAD_URL).mock(return_value=httpx.Response(200))
     respx.post(
-        f"{_STORAGE_URL}/api/v1/storage/artifacts/{_ARTIFACT_ID}/complete"
-    ).mock(
-        return_value=httpx.Response(
-            200, json={"download_url": _DOWNLOAD_URL}
-        )
-    )
+        f"{_STORAGE_URL}/api/v1/artifacts/{_ARTIFACT_ID}/complete"
+    ).mock(return_value=httpx.Response(200, json={}))
+    respx.get(
+        f"{_STORAGE_URL}/api/v1/artifacts/{_ARTIFACT_ID}/download"
+    ).mock(return_value=httpx.Response(200, json={"url": _DOWNLOAD_URL}))
 
 
 def _mock_list_outputs(files: list[dict[str, Any]]) -> respx.MockedRouter:
@@ -191,17 +190,16 @@ class TestFullUploadFlow:
             base_url=_STORAGE_URL,
             s2s_token_provider=lambda: "tok",
         )
-        meta_route = respx.post(
-            f"{_STORAGE_URL}/api/v1/storage/artifacts"
-        ).mock(
-            return_value=httpx.Response(
-                200, json={"artifact_id": _ARTIFACT_ID, "upload_url": _UPLOAD_URL}
-            )
+        meta_route = respx.post(f"{_STORAGE_URL}/api/v1/artifacts").mock(
+            return_value=httpx.Response(201, json={"id": _ARTIFACT_ID, "uploadUrl": _UPLOAD_URL})
         )
         respx.put(_UPLOAD_URL).mock(return_value=httpx.Response(200))
         respx.post(
-            f"{_STORAGE_URL}/api/v1/storage/artifacts/{_ARTIFACT_ID}/complete"
-        ).mock(return_value=httpx.Response(200, json={"download_url": _DOWNLOAD_URL}))
+            f"{_STORAGE_URL}/api/v1/artifacts/{_ARTIFACT_ID}/complete"
+        ).mock(return_value=httpx.Response(200, json={}))
+        respx.get(
+            f"{_STORAGE_URL}/api/v1/artifacts/{_ARTIFACT_ID}/download"
+        ).mock(return_value=httpx.Response(200, json={"url": _DOWNLOAD_URL}))
 
         ref = await client.register_sandbox_artifact(
             tenant_id=_TENANT_ID,
@@ -219,9 +217,11 @@ class TestFullUploadFlow:
         import json
 
         payload = json.loads(meta_route.calls.last.request.content)
-        assert payload["run_id"] == _RUN_ID
-        assert payload["user_id"] == _USER_ID
-        assert payload["origin_path"] == "outputs/data.csv"
+        # run_id is encoded into the unique objectKey; user_id/origin_path are not
+        # Storage columns (tenant comes from the S2S token), so they're not sent.
+        assert payload["objectKey"] == f"artifacts/{_RUN_ID}/data.csv"
+        assert payload["contentType"] == "text/csv"
+        assert payload["sizeBytes"] == len(_FILE_CONTENT)
 
     @respx.mock
     async def test_register_sandbox_artifact_100mb_limit(self) -> None:
@@ -365,24 +365,24 @@ class TestHash:
         self, watcher: ArtifactWatcher, events: list[ArtifactEvent]
     ) -> None:
         content = b"deterministic content"
-        expected_hash = hashlib.sha256(content).hexdigest()
+        # Wire sha256 is base64 of the raw digest (C# ``byte[]``), not hex.
+        expected_hash = base64.b64encode(hashlib.sha256(content).digest()).decode()
 
         _mock_list_outputs(
             [{"path": "outputs/data.bin", "type": "file", "sizeBytes": len(content), "modifiedAt": "T1"}]
         )
         _mock_read_file(content)
 
-        meta_route = respx.post(
-            f"{_STORAGE_URL}/api/v1/storage/artifacts"
-        ).mock(
-            return_value=httpx.Response(
-                200, json={"artifact_id": _ARTIFACT_ID, "upload_url": _UPLOAD_URL}
-            )
+        meta_route = respx.post(f"{_STORAGE_URL}/api/v1/artifacts").mock(
+            return_value=httpx.Response(201, json={"id": _ARTIFACT_ID, "uploadUrl": _UPLOAD_URL})
         )
         respx.put(_UPLOAD_URL).mock(return_value=httpx.Response(200))
         respx.post(
-            f"{_STORAGE_URL}/api/v1/storage/artifacts/{_ARTIFACT_ID}/complete"
-        ).mock(return_value=httpx.Response(200, json={"download_url": _DOWNLOAD_URL}))
+            f"{_STORAGE_URL}/api/v1/artifacts/{_ARTIFACT_ID}/complete"
+        ).mock(return_value=httpx.Response(200, json={}))
+        respx.get(
+            f"{_STORAGE_URL}/api/v1/artifacts/{_ARTIFACT_ID}/download"
+        ).mock(return_value=httpx.Response(200, json={"url": _DOWNLOAD_URL}))
 
         await _poll_once(watcher)
 
@@ -402,7 +402,7 @@ class TestS2SJWTFailure:
             [{"path": "outputs/file.txt", "type": "file", "sizeBytes": 5, "modifiedAt": "T1"}]
         )
         _mock_read_file(b"hello")
-        respx.post(f"{_STORAGE_URL}/api/v1/storage/artifacts").mock(
+        respx.post(f"{_STORAGE_URL}/api/v1/artifacts").mock(
             return_value=httpx.Response(401, json={"error": "unauthorized"})
         )
 
@@ -481,17 +481,16 @@ class TestMimeSniffing:
         )
         _mock_read_file(csv_content)
 
-        meta_route = respx.post(
-            f"{_STORAGE_URL}/api/v1/storage/artifacts"
-        ).mock(
-            return_value=httpx.Response(
-                200, json={"artifact_id": _ARTIFACT_ID, "upload_url": _UPLOAD_URL}
-            )
+        meta_route = respx.post(f"{_STORAGE_URL}/api/v1/artifacts").mock(
+            return_value=httpx.Response(201, json={"id": _ARTIFACT_ID, "uploadUrl": _UPLOAD_URL})
         )
         respx.put(_UPLOAD_URL).mock(return_value=httpx.Response(200))
         respx.post(
-            f"{_STORAGE_URL}/api/v1/storage/artifacts/{_ARTIFACT_ID}/complete"
-        ).mock(return_value=httpx.Response(200, json={"download_url": _DOWNLOAD_URL}))
+            f"{_STORAGE_URL}/api/v1/artifacts/{_ARTIFACT_ID}/complete"
+        ).mock(return_value=httpx.Response(200, json={}))
+        respx.get(
+            f"{_STORAGE_URL}/api/v1/artifacts/{_ARTIFACT_ID}/download"
+        ).mock(return_value=httpx.Response(200, json={"url": _DOWNLOAD_URL}))
 
         await _poll_once(watcher)
 
@@ -499,4 +498,4 @@ class TestMimeSniffing:
 
         payload = json.loads(meta_route.calls.last.request.content)
         # python-magic or mimetypes should detect text/csv or text/plain
-        assert payload["content_type"].startswith("text/")
+        assert payload["contentType"].startswith("text/")
