@@ -20,6 +20,11 @@ class FakeClient:
         content_bytes: bytes,
         content_type: str,
         filename: str,
+        *,
+        conversation_id: str | None = None,
+        kind: str | None = None,
+        origin: str | None = None,
+        ownership: dict[str, str] | None = None,
     ) -> ArtifactRef:
         self.calls.append(
             {
@@ -27,6 +32,9 @@ class FakeClient:
                 "content_bytes": content_bytes,
                 "content_type": content_type,
                 "filename": filename,
+                "conversation_id": conversation_id,
+                "kind": kind,
+                "origin": origin,
             }
         )
         return ArtifactRef(
@@ -68,6 +76,31 @@ class TestArtifactWriteTool:
         assert fake.calls[0]["content_bytes"] == b"# Hello"
         assert fake.calls[0]["content_type"] == "text/markdown"
         assert fake.calls[0]["filename"] == "report.md"
+
+    async def test_tool_scopes_artifact_to_conversation(self) -> None:
+        # The saved artifact must carry conversation_id + produced/cloud tags so
+        # the conversation file panel (which lists by conversation_id) surfaces it.
+        registry = ToolRegistry()
+        fake = FakeClient()
+        tool = build_artifact_write_tool(
+            registry, fake, tenant_id="t1", conversation_id="conv-42"
+        )
+
+        await tool(filename="out.md", content="x")
+
+        assert fake.calls[0]["conversation_id"] == "conv-42"
+        assert fake.calls[0]["kind"] == "produced"
+        assert fake.calls[0]["origin"] == "cloud"
+
+    async def test_tool_omits_conversation_when_absent(self) -> None:
+        # No conversation id → pass None (client's GUID gate drops it from the wire).
+        registry = ToolRegistry()
+        fake = FakeClient()
+        tool = build_artifact_write_tool(registry, fake, tenant_id="t1")
+
+        await tool(filename="out.md", content="x")
+
+        assert fake.calls[0]["conversation_id"] is None
 
     async def test_tool_uses_default_content_type(self) -> None:
         registry = ToolRegistry()

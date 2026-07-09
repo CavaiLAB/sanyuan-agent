@@ -16,11 +16,17 @@ def build_artifact_write_tool(
     client: StorageArtifactClient,
     *,
     tenant_id: str,
+    conversation_id: str = "",
 ) -> ArtifactWriteTool:
     """Return a bound ``artifact_write`` tool for the given tenant.
 
     The tool is automatically registered in *registry* under
     ``"artifact_write"`` with its OpenAI-style function schema.
+
+    ``conversation_id`` scopes the saved artifact to the conversation so the
+    file panel (which lists by ``conversation_id``) surfaces it — parity with
+    the sandbox-harvest path. Non-GUID session ids are safely omitted by the
+    client's GUID gate.
     """
 
     async def artifact_write(
@@ -33,6 +39,9 @@ def build_artifact_write_tool(
             content_bytes=content.encode("utf-8"),
             content_type=content_type,
             filename=filename,
+            conversation_id=conversation_id or None,
+            kind="produced",
+            origin="cloud",
         )
         return {
             "artifact_id": ref.id,
@@ -64,13 +73,21 @@ class ArtifactWriteToolProvider:
     / ``tool_sets``.
     """
 
-    def __init__(self, client: StorageArtifactClient, *, tenant_id: str) -> None:
+    def __init__(
+        self, client: StorageArtifactClient, *, tenant_id: str, conversation_id: str = ""
+    ) -> None:
         self._client = client
         self._tenant_id = tenant_id
+        self._conversation_id = conversation_id
 
     def provide(self) -> list[ToolSpec]:
         scratch = ToolRegistry()
-        build_artifact_write_tool(scratch, self._client, tenant_id=self._tenant_id)
+        build_artifact_write_tool(
+            scratch,
+            self._client,
+            tenant_id=self._tenant_id,
+            conversation_id=self._conversation_id,
+        )
         return [
             spec_from_callable(
                 scratch.get("artifact_write"),
