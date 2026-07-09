@@ -41,7 +41,16 @@ class _FakeArtifactClient:
         self.calls: list[dict[str, Any]] = []
 
     async def create_artifact(
-        self, *, tenant_id: str, content_bytes: bytes, content_type: str, filename: str
+        self,
+        *,
+        tenant_id: str,
+        content_bytes: bytes,
+        content_type: str,
+        filename: str,
+        conversation_id: str | None = None,
+        kind: str | None = None,
+        origin: str | None = None,
+        ownership: dict[str, str] | None = None,
     ) -> ArtifactRef:
         self.calls.append(
             {
@@ -49,6 +58,9 @@ class _FakeArtifactClient:
                 "content_bytes": content_bytes,
                 "content_type": content_type,
                 "filename": filename,
+                "conversation_id": conversation_id,
+                "kind": kind,
+                "origin": origin,
             }
         )
         return ArtifactRef(
@@ -161,6 +173,10 @@ class TestArtifactWriteProvider:
                 "content_bytes": b"hi",
                 "content_type": "text/plain",
                 "filename": "out.txt",
+                # No conversation on this provider → None; produced/cloud tags always set.
+                "conversation_id": None,
+                "kind": "produced",
+                "origin": "cloud",
             }
         ]
 
