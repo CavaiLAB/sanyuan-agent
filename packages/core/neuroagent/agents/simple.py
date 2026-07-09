@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Annotated, Any, cast
 
 from langgraph.graph import END, StateGraph
@@ -47,6 +48,11 @@ class AgentState(TypedDict):
     working: Any
     # Cumulative LLM token usage across the run (summed by _merge_usage).
     usage: Annotated[dict[str, int], _merge_usage]
+    # Opt-in live final-answer streaming (message deltas over the langgraph
+    # custom channel). ONLY the chat SSE layer sets this; workflow workers and
+    # ainvoke callers leave it unset so their LLM calls stay non-streaming
+    # (mocks, cost-callback timing and batch semantics unchanged).
+    stream_final: bool
 
 
 def _to_tool_def(tool: Callable[..., Any]) -> dict[str, Any]:
@@ -95,6 +101,110 @@ def _to_openai_message(msg: Any) -> dict[str, Any]:
     return out
 
 
+async def _stream_completion(
+    litellm_mod: Any,
+    model: str,
+    base_kwargs: dict[str, Any],
+    on_content_delta: Callable[[str], None],
+    hold_chars: int,
+) -> Any:
+    """Streaming variant of one completion: forward content deltas, return a
+    response shaped like the non-streaming one (choices[0].message + usage).
+
+    Emission gate — the caller can't know upfront whether this turn is the
+    final answer or a tool turn, so:
+    - a tool_call delta permanently stops emission (a tool turn's content is
+      narration; it surfaces as a `step` frame, and double-emitting it here
+      would duplicate text in the live body);
+    - the first *hold_chars* of content are buffered before emitting — tool
+      narration is typically short, so a turn that opens with a brief blurb and
+      then calls tools emits nothing at all; a real final answer blows past the
+      hold window almost immediately.
+    Everything still accumulates into the returned message regardless of the
+    gate, so the terminal final_answer frame always carries the full text.
+    """
+    stream = await litellm_mod.acompletion(
+        model=model,
+        stream=True,
+        # Usage arrives only on the last chunk; without this flag the streamed
+        # call would report zero tokens and llm_call_costs would under-record.
+        stream_options={"include_usage": True},
+        **base_kwargs,
+    )
+    if not hasattr(stream, "__aiter__"):
+        # Provider/proxy ignored stream=True and returned a complete response —
+        # degrade gracefully: emit the final answer once (tool turns emit
+        # nothing, matching the gate) and hand the response back unchanged.
+        message = getattr(stream.choices[0], "message", None) if getattr(stream, "choices", None) else None
+        content = getattr(message, "content", None) if message is not None else None
+        if content and not getattr(message, "tool_calls", None):
+            on_content_delta(content)
+        return stream
+
+    content_parts: list[str] = []
+    tool_calls_by_index: dict[int, dict[str, str]] = {}
+    usage_obj: Any = None
+    buffered = ""
+    flushed = False
+    saw_tool_call = False
+
+    async for chunk in stream:
+        chunk_usage = getattr(chunk, "usage", None)
+        if chunk_usage is not None:
+            usage_obj = chunk_usage
+        choices = getattr(chunk, "choices", None) or []
+        if not choices:
+            continue
+        delta = getattr(choices[0], "delta", None)
+        if delta is None:
+            continue
+
+        for tc in getattr(delta, "tool_calls", None) or []:
+            saw_tool_call = True
+            idx = getattr(tc, "index", 0) or 0
+            slot = tool_calls_by_index.setdefault(
+                idx, {"id": "", "type": "function", "name": "", "arguments": ""}
+            )
+            if getattr(tc, "id", None):
+                slot["id"] = tc.id
+            fn = getattr(tc, "function", None)
+            if fn is not None:
+                if getattr(fn, "name", None):
+                    slot["name"] = fn.name
+                # Arguments stream as JSON fragments — concatenate.
+                slot["arguments"] += getattr(fn, "arguments", None) or ""
+
+        piece = getattr(delta, "content", None)
+        if piece:
+            content_parts.append(piece)
+            if not saw_tool_call:
+                if flushed:
+                    on_content_delta(piece)
+                else:
+                    buffered += piece
+                    if len(buffered) >= hold_chars:
+                        on_content_delta(buffered)
+                        buffered = ""
+                        flushed = True
+
+    # A final answer shorter than the hold window still streams (once, whole).
+    if not saw_tool_call and not flushed and buffered:
+        on_content_delta(buffered)
+
+    tool_calls = [
+        SimpleNamespace(
+            id=slot["id"],
+            type=slot["type"],
+            function=SimpleNamespace(name=slot["name"], arguments=slot["arguments"]),
+        )
+        for _, slot in sorted(tool_calls_by_index.items())
+    ] or None
+    message = SimpleNamespace(
+        role="assistant", content="".join(content_parts), tool_calls=tool_calls
+    )
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage_obj)
+
+
 async def _call_llm(
     provider: LLMProvider,
     messages: list[dict[str, str]],
@@ -103,6 +213,8 @@ async def _call_llm(
     *,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    on_content_delta: Callable[[str], None] | None = None,
+    hold_chars: int = 0,
 ) -> Any:
     """Unified async LLM call via LiteLLM.
 
@@ -111,6 +223,10 @@ async def _call_llm(
 
     *temperature* / *max_tokens* are passed through only when set, so callers
     that omit them keep litellm's defaults (no behaviour change).
+
+    *on_content_delta* switches the call to streaming: content deltas are
+    forwarded to it (gated — see ``_stream_completion``) and the return value
+    keeps the non-streaming response shape. ``None`` keeps today's plain call.
     """
     # Normalize any LangChain message objects (e.g. ToolMessage) into OpenAI
     # dicts so litellm's GPT3Message model never sees a leaked string ``status``.
@@ -143,14 +259,30 @@ async def _call_llm(
         litellm.InternalServerError,
     )
 
+    # Streamed calls must not retry once tokens reached the client — a fallback
+    # would re-emit the answer's head. Track first emission across attempts.
+    emitted = False
+
+    def _guarded_delta(piece: str) -> None:
+        nonlocal emitted
+        emitted = True
+        assert on_content_delta is not None
+        on_content_delta(piece)
+
     # Try the primary model, then each fallback in order on a *transient*
     # failure. Non-transient errors bubble immediately.
     model_chain = (provider.default_model, *provider.fallback_models)
     last_exc: Exception | None = None
     for i, model in enumerate(model_chain):
         try:
+            if on_content_delta is not None:
+                return await _stream_completion(
+                    litellm, model, base_kwargs, _guarded_delta, hold_chars
+                )
             return await litellm.acompletion(model=model, **base_kwargs)
         except fallback_exceptions as exc:
+            if emitted:
+                raise
             last_exc = exc
             remaining = model_chain[i + 1 :]
             if remaining:
@@ -162,6 +294,36 @@ async def _call_llm(
                 )
     assert last_exc is not None  # only reachable after a caught failure
     raise last_exc
+
+
+# Hold window for streamed final-answer deltas: tool narration ("我先查一下…")
+# is nearly always shorter than this, so a narration-then-tools turn emits
+# nothing; a real final answer crosses it within its first sentence or two.
+_FINAL_STREAM_HOLD_CHARS = 160
+
+
+def _maybe_stream_writer() -> Callable[[dict[str, Any]], None] | None:
+    """LangGraph custom-stream writer, or None outside a streaming context
+    (ainvoke callers, older langgraph) — callers then take the non-stream path."""
+    try:
+        from langgraph.config import get_stream_writer
+
+        return get_stream_writer()
+    except Exception:  # pragma: no cover - depends on runtime context
+        return None
+
+
+def _final_delta_sink(
+    writer: Callable[[dict[str, Any]], None] | None,
+) -> Callable[[str], None] | None:
+    """Adapt the graph writer into the ``on_content_delta`` callback shape."""
+    if writer is None:
+        return None
+
+    def _sink(piece: str) -> None:
+        writer({"kind": "final_delta", "content": piece})
+
+    return _sink
 
 
 def _get_content(response: Any) -> str:
@@ -524,6 +686,15 @@ def build_simple_agent(
             metadata=llm_metadata,
             temperature=temperature,
             max_tokens=max_tokens,
+            # Stream this turn's content as it generates: if it turns out to be
+            # the final answer the client renders it live; a tool turn's
+            # narration is held back by the gate (see _stream_completion).
+            on_content_delta=(
+                _final_delta_sink(_maybe_stream_writer())
+                if state.get("stream_final")
+                else None
+            ),
+            hold_chars=_FINAL_STREAM_HOLD_CHARS,
         )
         usage = _get_usage(response)
         tcs = _get_tool_calls(response)
@@ -575,6 +746,14 @@ def build_simple_agent(
             metadata=llm_metadata,
             temperature=temperature,
             max_tokens=max_tokens,
+            # Toolless by construction → guaranteed terminal: stream every
+            # delta immediately, no hold window needed.
+            on_content_delta=(
+                _final_delta_sink(_maybe_stream_writer())
+                if state.get("stream_final")
+                else None
+            ),
+            hold_chars=0,
         )
         usage = _get_usage(response)
         content = _get_content(response) or (
