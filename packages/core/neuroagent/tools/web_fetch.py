@@ -5,11 +5,14 @@ from __future__ import annotations
 import ipaddress
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 
 from neuroagent.tools.block_detect import detect_block
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
+from neuroagent.tools.web_reader import ReaderRouter
+from neuroagent.tools.web_reader_models import FetchRequest
 
 WebFetchTool = Callable[[str], Awaitable[dict[str, Any]]]
 
@@ -19,6 +22,7 @@ def build_web_fetch_tool(
     *,
     timeout: int = 20,
     max_bytes: int = 2_000_000,
+    reader_router: ReaderRouter | None = None,
 ) -> WebFetchTool:
     """Return a bound web-fetch tool with SSRF guard.
 
@@ -26,6 +30,15 @@ def build_web_fetch_tool(
     """
 
     async def web_fetch(url: str) -> dict[str, Any]:
+        if reader_router is not None:
+            document = await reader_router.fetch(
+                FetchRequest(
+                    url=url,
+                    timeout_seconds=timeout,
+                    max_bytes=max_bytes,
+                )
+            )
+            return document.to_tool_result()
         _ssrf_guard(url)
         return await _fetch(url, timeout, max_bytes)
 
@@ -34,26 +47,56 @@ def build_web_fetch_tool(
 
 
 def _ssrf_guard(url: str) -> None:
-    """Reject private / loopback / internal URLs."""
-    parsed = httpx.URL(url)
-    host = parsed.host
+    """Synchronous compatibility guard; production also uses URLClassifier."""
+    try:
+        parsed = urlsplit(url.strip())
+        host = parsed.hostname
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("Invalid URL") from exc
     if not host:
         raise ValueError("Invalid URL: missing host")
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise ValueError("SSRF: only http(s) URLs are allowed")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("SSRF: URL userinfo is denied")
 
     # Block localhost variants
-    if host.lower() in {"localhost", "127.0.0.1", "::1"}:
+    lowered_host = host.lower().rstrip(".")
+    if lowered_host in {"localhost", "127.0.0.1", "::1"} or lowered_host.endswith(
+        (".internal", ".local", ".localhost", ".home", ".lan")
+    ):
         raise ValueError("SSRF: localhost access denied")
+    query_names = {
+        name.casefold() for name, _value in parse_qsl(parsed.query, keep_blank_values=True)
+    }
+    sensitive_names = {
+        "access_token",
+        "apikey",
+        "api_key",
+        "auth",
+        "authorization",
+        "key",
+        "ossaccesskeyid",
+        "password",
+        "secret",
+        "sig",
+        "signature",
+        "token",
+    }
+    if query_names & sensitive_names or any(name.startswith("x-amz-") for name in query_names):
+        raise ValueError("SSRF: credential-bearing URLs are denied")
 
     # Block private IP ranges (RFC 1918 + link-local)
     try:
-        ip = ipaddress.ip_address(host)
+        ip = ipaddress.ip_address(lowered_host)
     except ValueError:
         # Not an IP address — resolve is deferred to httpx (DNS rebinding risk
         # remains but mitigated by not resolving ourselves).  We intentionally
         # do *not* block *.internal or *.local here to avoid false positives.
         pass
     else:
-        if ip.is_private or ip.is_loopback or ip.is_link_local:
+        if not ip.is_global:
             raise ValueError(f"SSRF: private IP access denied ({host})")
 
 
@@ -68,7 +111,7 @@ async def _fetch(
     timeout: int,
     max_bytes: int,
 ) -> dict[str, Any]:
-    from trafilatura import extract
+    from trafilatura import extract, html2txt
 
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         resp = await client.get(url)
@@ -91,8 +134,10 @@ async def _fetch(
                 url=url,
                 include_comments=False,
                 include_tables=False,
-                no_fallback=True,
+                fast=True,
             )
+            if not text:
+                text = html2txt(decoded)
 
         safe_text = text or ""
         final_url = str(resp.url)

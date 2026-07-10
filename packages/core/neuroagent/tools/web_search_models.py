@@ -10,20 +10,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
-WebStatus = Literal[
-    "success",
-    "blocked",
-    "captcha",
-    "login_required",
-    "timeout",
-    "rate_limited",
-    "empty_content",
-    "unsupported_content",
-    "provider_unavailable",
-    "policy_denied",
-]
+from neuroagent.tools.web_models import WebStatus
 
 
 @dataclass(frozen=True, slots=True)

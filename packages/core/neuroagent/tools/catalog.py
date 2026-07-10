@@ -89,6 +89,7 @@ def builtin_providers(
     include_web: bool = True,
     include_link_reader: bool = True,
     web_search_router: Any | None = None,
+    web_reader_router: Any | None = None,
     # Sandbox file/shell via ISandboxProvider + a bound session.
     sandbox_provider: Any | None = None,
     sandbox_session: Any | None = None,
@@ -126,9 +127,9 @@ def builtin_providers(
     providers: dict[str, ToolProvider] = {}
 
     if include_web:
-        providers["web"] = WebToolProvider(web_search_router)
+        providers["web"] = WebToolProvider(web_search_router, web_reader_router)
     if include_link_reader:
-        providers["link_reader"] = LinkReaderToolProvider()
+        providers["link_reader"] = LinkReaderToolProvider(reader_router=web_reader_router)
 
     if sandbox_provider is not None and sandbox_session is not None:
         providers["bash"] = BashToolProvider(sandbox_provider, sandbox_session)

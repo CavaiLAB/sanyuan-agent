@@ -31,6 +31,7 @@ from typing import Any
 from neuroagent.tools.provider import ToolSpec, spec_from_callable
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 from neuroagent.tools.web_fetch import build_web_fetch_tool
+from neuroagent.tools.web_reader import ReaderRouter
 
 # A single-URL fetch primitive (web_fetch's shape): url -> result dict.
 FetchFn = Callable[[str], Awaitable[dict[str, Any]]]
@@ -93,6 +94,7 @@ def build_link_reader_tool(
     max_urls: int = _DEFAULT_MAX_URLS,
     timeout: int = 20,
     max_bytes: int = 2_000_000,
+    reader_router: ReaderRouter | None = None,
 ) -> LinkReaderTool:
     """Return a bound link_reader tool, registered under ``"link_reader"``.
 
@@ -103,7 +105,12 @@ def build_link_reader_tool(
     """
     _check_max_urls(max_urls)
     if fetch is None:
-        fetch = build_web_fetch_tool(ToolRegistry(), timeout=timeout, max_bytes=max_bytes)
+        fetch = build_web_fetch_tool(
+            ToolRegistry(),
+            timeout=timeout,
+            max_bytes=max_bytes,
+            reader_router=reader_router,
+        )
     tool = _make_link_reader(fetch, max_urls)
     registry.register("link_reader", tool, callable_to_schema(tool))
     return tool
@@ -125,17 +132,22 @@ class LinkReaderToolProvider:
         max_urls: int = _DEFAULT_MAX_URLS,
         timeout: int = 20,
         max_bytes: int = 2_000_000,
+        reader_router: ReaderRouter | None = None,
     ) -> None:
         self._fetch = fetch
         self._max_urls = _check_max_urls(max_urls)
         self._timeout = timeout
         self._max_bytes = max_bytes
+        self._reader_router = reader_router
 
     def provide(self) -> list[ToolSpec]:
         fetch = self._fetch
         if fetch is None:
             fetch = build_web_fetch_tool(
-                ToolRegistry(), timeout=self._timeout, max_bytes=self._max_bytes
+                ToolRegistry(),
+                timeout=self._timeout,
+                max_bytes=self._max_bytes,
+                reader_router=self._reader_router,
             )
         tool = _make_link_reader(fetch, self._max_urls)
         return [
