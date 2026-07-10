@@ -58,6 +58,8 @@ from neuroagent.tools.sandbox_tool import (
 )
 from neuroagent.tools.web_fetch import build_web_fetch_tool
 from neuroagent.tools.web_provider import WebToolProvider
+from neuroagent.tools.web_reader import ExaContentsBackend, HttpReaderBackend, ReaderRouter
+from neuroagent.tools.web_reader_models import FetchDocument, FetchRequest
 from neuroagent.tools.web_search import (
     ExaSearchBackend,
     LegacySearchBackend,
@@ -82,11 +84,15 @@ __all__ = [
     "ComputerUseClient",
     "ComputerUseResult",
     "ComputerUseToolProvider",
+    "ExaContentsBackend",
     "ExaSearchBackend",
     "ExecuteSkillsToolProvider",
     "FakeComputerUseClient",
     "FakeMobileUseClient",
+    "FetchDocument",
+    "FetchRequest",
     "FileOpsToolProvider",
+    "HttpReaderBackend",
     "KnowledgeBaseToolProvider",
     "LegacySearchBackend",
     "LinkReaderToolProvider",
@@ -97,6 +103,7 @@ __all__ = [
     "MultimodalArtifact",
     "MultimodalClient",
     "MultimodalToolProvider",
+    "ReaderRouter",
     "SandboxToolProvider",
     "SearchBackend",
     "SearchBackendError",

@@ -17,6 +17,7 @@ from __future__ import annotations
 from neuroagent.tools.provider import ToolSpec, spec_from_callable
 from neuroagent.tools.registry import ToolRegistry
 from neuroagent.tools.web_fetch import build_web_fetch_tool
+from neuroagent.tools.web_reader import ReaderRouter
 from neuroagent.tools.web_search import SearchRouter, build_web_search_tool
 
 
@@ -28,15 +29,20 @@ class WebToolProvider:
     ``AgentSpec.tools`` / ``tool_sets``.
     """
 
-    def __init__(self, search_router: SearchRouter | None = None) -> None:
+    def __init__(
+        self,
+        search_router: SearchRouter | None = None,
+        reader_router: ReaderRouter | None = None,
+    ) -> None:
         self._search_router = search_router
+        self._reader_router = reader_router
 
     def provide(self) -> list[ToolSpec]:
         # Build into a scratch registry, then re-emit the registered callables +
         # schemas verbatim as specs (schema passed through, never re-derived).
         scratch = ToolRegistry()
         search = build_web_search_tool(scratch, router=self._search_router)
-        fetch = build_web_fetch_tool(scratch)
+        fetch = build_web_fetch_tool(scratch, reader_router=self._reader_router)
         return [
             spec_from_callable(
                 search,
