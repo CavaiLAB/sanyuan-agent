@@ -26,6 +26,8 @@ from neuroagent.tools import (
 )
 from neuroagent.tools.provider import ToolProvider, register_provider
 from neuroagent.tools.registry import ToolRegistry
+from neuroagent.tools.web_search import SearchRouter
+from neuroagent.tools.web_search_models import SearchBackendResult, SearchItem, SearchRequest
 
 EXPECTED = {"web_search", "web_fetch"}
 
@@ -87,6 +89,23 @@ class TestEquivalence:
         fetch = _specs_by_name()["web_fetch"]
         with pytest.raises(ValueError, match="SSRF"):
             await fetch.callable("http://127.0.0.1/secret")
+
+    async def test_injected_search_router_is_used(self) -> None:
+        class StaticBackend:
+            name = "static"
+            available = True
+
+            async def search(self, request: SearchRequest) -> SearchBackendResult:
+                return SearchBackendResult(
+                    items=(SearchItem(title=request.query, url="https://example.com"),)
+                )
+
+        specs = {
+            spec.name: spec
+            for spec in WebToolProvider(SearchRouter([StaticBackend()])).provide()
+        }
+        results = await specs["web_search"].callable("routed", 5)
+        assert results[0].title == "routed"
 
 
 # ---------------------------------------------------------------------------

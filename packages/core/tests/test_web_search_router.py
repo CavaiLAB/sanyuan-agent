@@ -1,0 +1,225 @@
+"""SearchRouter, Exa mapping, fallback, filtering, and compatibility tests."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+from neuroagent.tools.registry import ToolRegistry
+from neuroagent.tools.web_search import (
+    ExaSearchBackend,
+    SearchResult,
+    SearchRouter,
+    build_web_search_tool,
+    normalize_search_url,
+)
+from neuroagent.tools.web_search_models import (
+    SearchBackendError,
+    SearchBackendResult,
+    SearchItem,
+    SearchProviderError,
+    SearchRequest,
+    SearchTrace,
+    WebStatus,
+)
+
+
+class FakeBackend:
+    def __init__(
+        self,
+        name: str,
+        *,
+        items: tuple[SearchItem, ...] = (),
+        status: WebStatus | None = None,
+        available: bool = True,
+    ) -> None:
+        self.name = name
+        self.available = available
+        self._items = items
+        self._status = status
+        self.calls: list[SearchRequest] = []
+
+    async def search(self, request: SearchRequest) -> SearchBackendResult:
+        self.calls.append(request)
+        if self._status is not None:
+            raise SearchBackendError(
+                SearchProviderError(
+                    provider=self.name,
+                    status=self._status,
+                    code=f"fake_{self._status}",
+                    retryable=self._status in {"timeout", "rate_limited"},
+                )
+            )
+        return SearchBackendResult(items=self._items, request_id=f"req-{self.name}")
+
+
+class FakeExaClient:
+    def __init__(self, response: Mapping[str, Any]) -> None:
+        self.response = response
+        self.payloads: list[Mapping[str, Any]] = []
+
+    async def search(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        self.payloads.append(payload)
+        return self.response
+
+
+@pytest.mark.parametrize("status", ["timeout", "rate_limited", "provider_unavailable"])
+async def test_structured_failure_falls_back(status: WebStatus) -> None:
+    trace = SearchTrace()
+    primary = FakeBackend("primary", status=status)
+    fallback = FakeBackend(
+        "legacy",
+        items=(SearchItem(title="ok", url="https://example.com", provider="legacy"),),
+    )
+
+    response = await SearchRouter([primary, fallback], observer=trace).search(
+        SearchRequest(query="q")
+    )
+
+    assert response.final_provider == "legacy"
+    assert response.items[0].url == "https://example.com/"
+    assert [attempt.status for attempt in trace.attempts] == [status, "success"]
+    assert trace.attempts[1].fallback_reason == status
+
+
+async def test_unavailable_preflight_and_empty_results_both_fall_back() -> None:
+    trace = SearchTrace()
+    unavailable = FakeBackend("exa", available=False)
+    empty = FakeBackend("empty")
+    legacy = FakeBackend(
+        "legacy",
+        items=(SearchItem(title="ok", url="https://example.com"),),
+    )
+
+    response = await SearchRouter([unavailable, empty, legacy], observer=trace).search(
+        SearchRequest(query="q")
+    )
+
+    assert response.final_provider == "legacy"
+    assert [attempt.status for attempt in response.attempts] == [
+        "provider_unavailable",
+        "empty_content",
+        "success",
+    ]
+    assert unavailable.calls == []
+
+
+async def test_normalization_dedupe_domain_and_date_filters() -> None:
+    backend = FakeBackend(
+        "exa",
+        items=(
+            SearchItem(
+                title="first",
+                url="HTTPS://Docs.Example.com/a/?utm_source=x&b=2&a=1#part",
+                published_date="2026-06-01T00:00:00Z",
+            ),
+            SearchItem(
+                title="duplicate",
+                url="https://docs.example.com/a?a=1&b=2",
+                published_date="2026-06-01T00:00:00Z",
+            ),
+            SearchItem(
+                title="excluded",
+                url="https://blocked.example.com/a",
+                published_date="2026-06-01T00:00:00Z",
+            ),
+            SearchItem(
+                title="old",
+                url="https://docs.example.com/old",
+                published_date="2025-01-01T00:00:00Z",
+            ),
+        ),
+    )
+    request = SearchRequest(
+        query="q",
+        include_domains=("example.com",),
+        exclude_domains=("blocked.example.com",),
+        start_published_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    response = await SearchRouter([backend]).search(request)
+
+    assert [item.title for item in response.items] == ["first"]
+    assert response.items[0].url == "https://docs.example.com/a?a=1&b=2"
+    assert normalize_search_url("ftp://example.com/a") == ""
+    assert normalize_search_url("https://example.com:not-a-port/a") == ""
+
+
+def test_request_allows_small_result_sets_and_requires_timezone() -> None:
+    assert SearchRequest(query="q", max_results=1).max_results == 1
+    with pytest.raises(ValueError, match="timezone"):
+        SearchRequest(query="q", start_published_at=datetime(2026, 1, 1))
+
+
+async def test_exa_maps_contents_request_id_and_cost() -> None:
+    client = FakeExaClient(
+        {
+            "requestId": "req-123",
+            "costDollars": {"total": 0.007},
+            "results": [
+                {
+                    "title": "Result",
+                    "url": "https://example.com/article",
+                    "publishedDate": "2026-07-01T00:00:00Z",
+                    "text": "full retrieved text",
+                    "highlights": ["important excerpt"],
+                }
+            ],
+        }
+    )
+    backend = ExaSearchBackend(client)
+    request = SearchRequest(
+        query="latest",
+        max_results=7,
+        include_domains=("example.com",),
+        start_published_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    result = await backend.search(request)
+
+    assert result.request_id == "req-123"
+    assert result.cost_usd == 0.007
+    assert result.items[0].content == "full retrieved text"
+    assert result.items[0].highlights == ("important excerpt",)
+    assert client.payloads[0]["numResults"] == 7
+    assert client.payloads[0]["includeDomains"] == ["example.com"]
+    assert client.payloads[0]["contents"] == {"text": True, "highlights": True}
+
+
+async def test_public_tool_signature_unchanged_and_metadata_additive() -> None:
+    router = SearchRouter(
+        [
+            FakeBackend(
+                "exa",
+                items=(
+                    SearchItem(
+                        title="Result",
+                        url="https://example.com",
+                        snippet="snippet",
+                        content="evidence",
+                        provider="exa",
+                        request_id="req-1",
+                    ),
+                ),
+            )
+        ]
+    )
+    registry = ToolRegistry()
+    tool = build_web_search_tool(registry, router=router)
+
+    results = await tool("query", 5)
+
+    assert results == [
+        SearchResult(
+            title="Result",
+            url="https://example.com/",
+            snippet="snippet",
+            content="evidence",
+            provider="exa",
+            request_id="req-1",
+        )
+    ]
+    parameters = registry.get_schema("web_search")["parameters"]
+    assert set(parameters["properties"]) == {"query", "max_results"}

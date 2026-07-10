@@ -85,9 +85,10 @@ DEFAULT_TOOL_SETS: dict[str, tuple[str, ...]] = {
 
 def builtin_providers(
     *,
-    # Web (no client needed).
+    # Web (Router optional; None keeps the direct legacy path).
     include_web: bool = True,
     include_link_reader: bool = True,
+    web_search_router: Any | None = None,
     # Sandbox file/shell via ISandboxProvider + a bound session.
     sandbox_provider: Any | None = None,
     sandbox_session: Any | None = None,
@@ -125,7 +126,7 @@ def builtin_providers(
     providers: dict[str, ToolProvider] = {}
 
     if include_web:
-        providers["web"] = WebToolProvider()
+        providers["web"] = WebToolProvider(web_search_router)
     if include_link_reader:
         providers["link_reader"] = LinkReaderToolProvider()
 

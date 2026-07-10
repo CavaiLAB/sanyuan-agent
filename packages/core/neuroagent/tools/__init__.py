@@ -58,7 +58,19 @@ from neuroagent.tools.sandbox_tool import (
 )
 from neuroagent.tools.web_fetch import build_web_fetch_tool
 from neuroagent.tools.web_provider import WebToolProvider
-from neuroagent.tools.web_search import build_web_search_tool
+from neuroagent.tools.web_search import (
+    ExaSearchBackend,
+    LegacySearchBackend,
+    SearchRouter,
+    build_web_search_tool,
+)
+from neuroagent.tools.web_search_models import (
+    SearchBackend,
+    SearchBackendError,
+    SearchItem,
+    SearchProviderError,
+    SearchRequest,
+)
 
 __all__ = [
     "DEFAULT_TOOL_SETS",
@@ -70,11 +82,13 @@ __all__ = [
     "ComputerUseClient",
     "ComputerUseResult",
     "ComputerUseToolProvider",
+    "ExaSearchBackend",
     "ExecuteSkillsToolProvider",
     "FakeComputerUseClient",
     "FakeMobileUseClient",
     "FileOpsToolProvider",
     "KnowledgeBaseToolProvider",
+    "LegacySearchBackend",
     "LinkReaderToolProvider",
     "MemoryToolProvider",
     "MobileUseClient",
@@ -84,6 +98,12 @@ __all__ = [
     "MultimodalClient",
     "MultimodalToolProvider",
     "SandboxToolProvider",
+    "SearchBackend",
+    "SearchBackendError",
+    "SearchItem",
+    "SearchProviderError",
+    "SearchRequest",
+    "SearchRouter",
     "ToolProvider",
     "ToolRegistry",
     "ToolSpec",
