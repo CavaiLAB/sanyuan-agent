@@ -16,12 +16,16 @@ agent-graph run.
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import json
+import re
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field
 
@@ -166,8 +170,9 @@ class SubagentRunner:
         tool_event_observer: ToolEventObserver | None = None,
         stream_final: bool = False,
     ) -> WorkerResult:
+        evidence: dict[str, Any] = {}
         if spec.tool_sets or spec.tools:
-            outcome = await self._run_with_tools(
+            outcome, evidence = await self._run_with_tools(
                 spec,
                 brief,
                 run_id=run_id,
@@ -200,7 +205,12 @@ class SubagentRunner:
                 run_id=run_id,
                 **self._agent_kwargs,
             )
-        return WorkerResult(answer=outcome.answer, run_id=run_id, usage=outcome.usage)
+        return WorkerResult(
+            answer=outcome.answer,
+            run_id=run_id,
+            evidence=evidence,
+            usage=outcome.usage,
+        )
 
     async def _run_with_tools(
         self,
@@ -210,15 +220,24 @@ class SubagentRunner:
         run_id: str,
         tool_event_observer: ToolEventObserver | None = None,
         stream_final: bool = False,
-    ) -> Any:
+    ) -> tuple[Any, dict[str, Any]]:
         if self._tool_binder is None:
             raise RuntimeError(
                 f"worker {spec.name!r} declares tools but no tool binder is "
                 "configured — refusing to run tools outside the sandbox boundary"
             )
         binding = await self._tool_binder(spec, run_id)
+        web_fetches: list[dict[str, str]] = []
+
+        def observe(event: dict[str, Any]) -> None:
+            evidence = _web_fetch_evidence(event)
+            if evidence is not None and evidence not in web_fetches:
+                web_fetches.append(evidence)
+            if tool_event_observer is not None:
+                tool_event_observer(event)
+
         try:
-            return await run_subagent_outcome(
+            outcome = await run_subagent_outcome(
                 spec,
                 brief,
                 tool_registry=self._tool_registry,
@@ -226,31 +245,117 @@ class SubagentRunner:
                 skill_registry=self._skill_registry,
                 tool_sets=self._tool_sets,
                 tool_providers=dict(binding.providers),
-                tool_event_observer=tool_event_observer,
+                tool_event_observer=observe,
                 stream_final=stream_final,
                 run_id=run_id,
                 **self._agent_kwargs,
             )
+            evidence_urls = sorted({item["url"] for item in web_fetches})
+            return outcome, {
+                "evidence_urls": evidence_urls,
+                "web_fetches": web_fetches,
+            }
         finally:
             await binding.aclose()
 
 
+def _web_fetch_evidence(event: dict[str, Any]) -> dict[str, str] | None:
+    """Extract only quality-gated web_fetch evidence from a tool event."""
+    if (
+        event.get("kind") != "tool_result"
+        or event.get("name") != "web_fetch"
+        or event.get("is_error")
+    ):
+        return None
+    content = event.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return None
+    parsed: Any
+    try:
+        parsed = json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        try:
+            parsed = ast.literal_eval(content)
+        except (SyntaxError, ValueError):
+            return None
+    if not isinstance(parsed, Mapping) or parsed.get("status") != "success":
+        return None
+    url = parsed.get("evidence_url")
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        return None
+    return {
+        "url": url,
+        "title": str(parsed.get("title") or ""),
+        "provider": str(parsed.get("provider") or ""),
+    }
+
+
 def build_synthesis_brief(instruction: str, items: Iterable[WorkItemRun]) -> str:
-    """Compose the synthesis worker's brief from results only — never logs.
+    """Compose the synthesis brief from results plus a URL-only evidence ledger.
 
     Each section carries the worker id, the original brief, the outcome status
-    and the result (or error). ``evidence`` and any execution noise stay out by
-    construction so the synthesizer reasons over signal, not transcripts.
+    and the result (or error). Arbitrary evidence/tool noise stays out; only
+    canonical successful-fetch URLs cross the synthesis boundary.
     """
     sections: list[str] = []
     for item in items:
         outcome = item.result if item.status == "succeeded" else f"[failed] {item.error}"
+        evidence_urls = sorted(_evidence_urls([item]))
+        evidence = ""
+        if evidence_urls:
+            evidence = "\nEvidence ledger:\n" + json.dumps(
+                {"evidence_urls": evidence_urls}, ensure_ascii=False
+            )
         sections.append(
             f"### {item.worker} · {item.item_id} ({item.status})\n"
             f"Brief: {item.brief}\n"
-            f"Result:\n{outcome}"
+            f"Result:\n{outcome}{evidence}"
         )
     return instruction + "\n\n## Worker results\n\n" + "\n\n".join(sections)
+
+
+_ANSWER_URL_RE = re.compile(r"https?://[^\s<>\])}]+", re.IGNORECASE)
+
+
+def _canonical_evidence_url(url: str) -> str | None:
+    try:
+        parsed = urlsplit(url.strip())
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return None
+    host = parsed.hostname.lower().rstrip(".")
+    port = parsed.port
+    netloc = f"{host}:{port}" if port else host
+    return urlunsplit(
+        (parsed.scheme.lower(), netloc, parsed.path or "/", parsed.query, "")
+    )
+
+
+def _evidence_urls(items: Iterable[WorkItemRun]) -> set[str]:
+    urls: set[str] = set()
+    for item in items:
+        raw = item.evidence.get("evidence_urls")
+        if not isinstance(raw, list):
+            continue
+        for value in raw:
+            if isinstance(value, str) and (canonical := _canonical_evidence_url(value)):
+                urls.add(canonical)
+    return urls
+
+
+def _cited_urls(answer: str) -> set[str]:
+    urls: set[str] = set()
+    for raw in _ANSWER_URL_RE.findall(answer):
+        if canonical := _canonical_evidence_url(raw.rstrip(".,;:!?")):
+            urls.add(canonical)
+    return urls
+
+
+def _requires_citation_evidence(spec: WorkflowSpec) -> bool:
+    return any(
+        "web_research" in worker.tool_sets for worker in spec.workers.values()
+    )
 
 
 def _now() -> datetime:
@@ -477,6 +582,25 @@ class WorkflowEngine:
                 async for event in self._fail(run, f"synthesis failed: {exc}"):
                     yield event
                 return
+            if _requires_citation_evidence(spec):
+                items = [item for phase in run.phases for item in phase.items]
+                allowed_urls = _evidence_urls(items)
+                cited_urls = _cited_urls(result.answer)
+                invalid_urls = cited_urls - allowed_urls
+                if invalid_urls:
+                    async for event in self._fail(
+                        run,
+                        "synthesis cited URL(s) without successful fetched evidence",
+                    ):
+                        yield event
+                    return
+                if allowed_urls and not cited_urls:
+                    async for event in self._fail(
+                        run,
+                        "synthesis omitted citations for fetched web evidence",
+                    ):
+                        yield event
+                    return
             run.synthesis_result = result.answer
             run.synthesis_usage = _normalize_usage(result.usage)
 

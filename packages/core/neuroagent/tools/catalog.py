@@ -66,6 +66,10 @@ DEFAULT_TOOL_SETS: dict[str, tuple[str, ...]] = {
     # upload_file deliberately — it reads from the gateway host's local disk,
     # which a sandbox-scoped worker must never do.
     "sandbox_workspace": ("bash", "read_file", "write_file", "list_dir"),
+    # Research workers get only the two server-routed read tools. LinkReader is
+    # omitted because web_fetch already shares ReaderRouter and its evidence
+    # ledger; browser interaction remains an internal Reader fallback.
+    "web_research": ("web_search", "web_fetch"),
     # A pragmatic everyday default: web + light filesystem + sandbox shell +
     # artifacts + skills. Omits external generators and device control, which a
     # deployment opts into deliberately.
