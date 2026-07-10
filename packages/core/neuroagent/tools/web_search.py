@@ -61,8 +61,10 @@ def normalize_search_url(url: str) -> str:
     netloc = host
     if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
         netloc = f"{host}:{port}"
-    path = parsed.path or "/"
-    if path != "/":
+    path = parsed.path
+    if path == "/":
+        path = ""
+    elif path:
         path = path.rstrip("/")
     query = urlencode(
         sorted(
@@ -357,7 +359,7 @@ def build_web_search_tool(
         response = await selected_router.search(
             SearchRequest(
                 query=query,
-                max_results=min(max(max_results, 1), 10),
+                max_results=min(max(max_results, 1), 100),
                 content_results=min(3, max(max_results, 1)),
             )
         )

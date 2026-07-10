@@ -79,7 +79,7 @@ async def test_structured_failure_falls_back(status: WebStatus) -> None:
     )
 
     assert response.final_provider == "legacy"
-    assert response.items[0].url == "https://example.com/"
+    assert response.items[0].url == "https://example.com"
     assert [attempt.status for attempt in trace.attempts] == [status, "success"]
     assert trace.attempts[1].fallback_reason == status
 
@@ -214,7 +214,7 @@ async def test_public_tool_signature_unchanged_and_metadata_additive() -> None:
     assert results == [
         SearchResult(
             title="Result",
-            url="https://example.com/",
+            url="https://example.com",
             snippet="snippet",
             content="evidence",
             provider="exa",
