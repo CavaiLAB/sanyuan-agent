@@ -25,6 +25,7 @@ from neuroagent.tools.web_reader_models import (
     HttpFetchRequest,
     HttpReaderClient,
     ReaderBackend,
+    SourceAdapter,
 )
 
 ReaderObserver = Callable[[FetchAttempt], None]
@@ -514,6 +515,8 @@ class ReaderRouter:
         fallback_reason: str | None = None
         last_document: FetchDocument | None = None
         for backend in self._backends:
+            if isinstance(backend, SourceAdapter) and not backend.supports(request, last_document):
+                continue
             if monotonic() >= deadline:
                 attempt = FetchAttempt(
                     provider=backend.name,

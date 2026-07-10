@@ -24,6 +24,7 @@ from neuroagent.tools.web_reader_models import (
     HttpFetchResponse,
     wrap_untrusted_web_content,
 )
+from neuroagent.tools.web_source import DocumentSourceAdapter
 
 _PUBLIC_IP = "93.184.216.34"
 
@@ -343,6 +344,62 @@ async def test_browser_reader_propagates_navigation_policy_denial_and_closes() -
     assert document.status == "policy_denied"
     assert document.error_code == "dns_non_public_ip"
     assert session.closed is True
+
+
+async def test_document_source_adapter_runs_after_http_content_type_detection() -> None:
+    class Converter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def convert(self, request: FetchRequest, *, deadline: float) -> FetchDocument:
+            del deadline
+            self.calls += 1
+            return FetchDocument(
+                url=request.url,
+                final_url=request.url,
+                provider="document",
+                status="success",
+                content="# Converted\n\nreliable document evidence " * 10,
+                content_type="text/markdown",
+            )
+
+    converter = Converter()
+    http = FakeHttpClient(_response(b"%PDF-1.7", "application/pdf"))
+    router = ReaderRouter(
+        [HttpReaderBackend(http), DocumentSourceAdapter(converter)],
+        URLClassifier(FakeResolver()),
+    )
+
+    document = await router.fetch(FetchRequest(url="https://example.com/download"))
+
+    assert document.status == "success"
+    assert document.provider == "document"
+    assert converter.calls == 1
+    assert [attempt.provider for attempt in document.attempts] == ["http", "document"]
+
+
+async def test_document_source_adapter_is_skipped_for_normal_html() -> None:
+    class NeverConverter:
+        async def convert(self, request: FetchRequest, *, deadline: float) -> FetchDocument:
+            raise AssertionError("normal HTML must not enter document converter")
+
+    router = ReaderRouter(
+        [
+            HttpReaderBackend(FakeHttpClient(_response(b"short", "text/plain"))),
+            DocumentSourceAdapter(NeverConverter()),
+            ExaContentsBackend(
+                FakeExaClient(
+                    {"results": [{"url": "https://example.com/a", "text": "evidence " * 30}]}
+                )
+            ),
+        ],
+        URLClassifier(FakeResolver()),
+    )
+
+    document = await router.fetch(FetchRequest(url="https://example.com/a"))
+
+    assert document.status == "success"
+    assert [attempt.provider for attempt in document.attempts] == ["http", "exa"]
 
 
 async def test_reader_router_policy_denial_never_calls_backend() -> None:

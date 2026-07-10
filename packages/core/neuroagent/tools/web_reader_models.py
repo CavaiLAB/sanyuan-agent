@@ -180,6 +180,11 @@ class FirecrawlClient(Protocol):
 
 
 @runtime_checkable
+class DocumentConverterClient(Protocol):
+    async def convert(self, request: FetchRequest, *, deadline: float) -> FetchDocument: ...
+
+
+@runtime_checkable
 class BrowserReaderSession(Protocol):
     async def navigate(self, url: str) -> dict[str, Any]: ...
 
@@ -204,9 +209,17 @@ class ReaderBackend(Protocol):
     async def read(self, request: FetchRequest, *, deadline: float) -> FetchDocument: ...
 
 
+@runtime_checkable
+class SourceAdapter(ReaderBackend, Protocol):
+    """Stable source selected by URL or a previous content-type observation."""
+
+    def supports(self, request: FetchRequest, previous: FetchDocument | None) -> bool: ...
+
+
 __all__ = [
     "BrowserReaderSession",
     "BrowserReaderSessionFactory",
+    "DocumentConverterClient",
     "ExaContentsClient",
     "FetchAttempt",
     "FetchBackendError",
@@ -218,5 +231,6 @@ __all__ = [
     "HttpFetchResponse",
     "HttpReaderClient",
     "ReaderBackend",
+    "SourceAdapter",
     "wrap_untrusted_web_content",
 ]
