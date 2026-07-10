@@ -61,6 +61,20 @@ class TestMetadata:
         assert specs["web_search"].capabilities == ("web", "search")
         assert specs["web_fetch"].capabilities == ("web", "fetch")
 
+    def test_routed_provider_declares_secret_names_without_values(self) -> None:
+        specs = {
+            spec.name: spec
+            for spec in WebToolProvider(
+                search_required_secrets=("EXA_API_KEY",),
+                fetch_required_secrets=("EXA_API_KEY", "FIRECRAWL_API_KEY"),
+            ).provide()
+        }
+        assert specs["web_search"].required_secrets == ("EXA_API_KEY",)
+        assert specs["web_fetch"].required_secrets == (
+            "EXA_API_KEY",
+            "FIRECRAWL_API_KEY",
+        )
+
 
 # ---------------------------------------------------------------------------
 # No schema change / no behavior change

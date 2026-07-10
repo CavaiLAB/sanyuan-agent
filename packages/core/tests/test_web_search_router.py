@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from neuroagent.tools.registry import ToolRegistry
+from neuroagent.tools.web_budget import WebRunBudget
 from neuroagent.tools.web_search import (
     ExaSearchBackend,
     SearchResult,
@@ -106,6 +107,47 @@ async def test_unavailable_preflight_and_empty_results_both_fall_back() -> None:
     assert unavailable.calls == []
 
 
+async def test_shared_run_budget_caps_search_calls_and_request_size() -> None:
+    backend = FakeBackend(
+        "exa",
+        items=tuple(
+            SearchItem(title=str(index), url=f"https://example.com/{index}")
+            for index in range(10)
+        ),
+    )
+    router = SearchRouter(
+        [backend],
+        budget=WebRunBudget(max_searches=1),
+        max_results=4,
+        max_content_results=2,
+    )
+
+    first = await router.search(
+        SearchRequest(query="q", max_results=9, content_results=8)
+    )
+    second = await router.search(SearchRequest(query="q2"))
+
+    assert len(first.items) == 4
+    assert backend.calls[0].max_results == 4
+    assert backend.calls[0].content_results == 2
+    assert second.items == ()
+    assert second.attempts[0].provider == "quota"
+    assert second.attempts[0].error_code == "web_search_run_budget_exhausted"
+    assert len(backend.calls) == 1
+
+
+async def test_search_router_awaits_async_observer() -> None:
+    attempts: list[str] = []
+
+    async def observe(attempt: Any) -> None:
+        attempts.append(attempt.provider)
+
+    router = SearchRouter([FakeBackend("empty")], observer=observe)
+    await router.search(SearchRequest(query="q"))
+
+    assert attempts == ["empty"]
+
+
 async def test_normalization_dedupe_domain_and_date_filters() -> None:
     backend = FakeBackend(
         "exa",
@@ -186,6 +228,34 @@ async def test_exa_maps_contents_request_id_and_cost() -> None:
     assert client.payloads[0]["numResults"] == 7
     assert client.payloads[0]["includeDomains"] == ["example.com"]
     assert client.payloads[0]["contents"] == {"text": True, "highlights": True}
+
+
+async def test_exa_keeps_content_only_for_configured_result_budget() -> None:
+    client = FakeExaClient(
+        {
+            "results": [
+                {
+                    "title": str(index),
+                    "url": f"https://example.com/{index}",
+                    "text": f"content-{index}",
+                    "highlights": [f"highlight-{index}"],
+                }
+                for index in range(4)
+            ]
+        }
+    )
+
+    result = await ExaSearchBackend(client).search(
+        SearchRequest(query="q", max_results=4, content_results=2)
+    )
+
+    assert [item.content for item in result.items] == [
+        "content-0",
+        "content-1",
+        "",
+        "",
+    ]
+    assert result.items[2].highlights == ()
 
 
 async def test_public_tool_signature_unchanged_and_metadata_additive() -> None:

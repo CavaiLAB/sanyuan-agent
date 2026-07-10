@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -12,6 +13,8 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
+from neuroagent.tools.web_budget import WebRunBudget
+from neuroagent.tools.web_models import WebStatus
 from neuroagent.tools.web_search_models import (
     ExaSearchClient,
     SearchAttempt,
@@ -22,7 +25,6 @@ from neuroagent.tools.web_search_models import (
     SearchRequest,
     SearchResponse,
     SearchTrace,
-    WebStatus,
 )
 
 _TRACKING_QUERY_KEYS = frozenset({"fbclid", "gclid", "mc_cid", "mc_eid"})
@@ -44,7 +46,7 @@ class SearchResult:
 
 
 WebSearchTool = Callable[[str, int], Awaitable[list[SearchResult]]]
-SearchObserver = Callable[[SearchAttempt], None]
+SearchObserver = Callable[[SearchAttempt], Awaitable[None] | None]
 
 
 def normalize_search_url(url: str) -> str:
@@ -131,13 +133,49 @@ class SearchRouter:
         backends: Sequence[SearchBackend],
         *,
         observer: SearchObserver | None = None,
+        budget: WebRunBudget | None = None,
+        max_results: int = 100,
+        max_content_results: int = 3,
     ) -> None:
         if not backends:
             raise ValueError("SearchRouter requires at least one backend")
+        if max_results < 1:
+            raise ValueError("max_results must be positive")
+        if max_content_results < 0:
+            raise ValueError("max_content_results must not be negative")
         self._backends = tuple(backends)
         self._observer = observer
+        self._budget = budget
+        self._max_results = max_results
+        self._max_content_results = max_content_results
 
     async def search(self, request: SearchRequest) -> SearchResponse:
+        if self._budget is not None and not await self._budget.reserve("search"):
+            attempt = SearchAttempt(
+                provider="quota",
+                status="rate_limited",
+                latency_ms=0,
+                error_code="web_search_run_budget_exhausted",
+            )
+            await self._record(attempt)
+            return SearchResponse(
+                items=(), attempts=(attempt,), final_provider=None
+            )
+        limited_request = replace(
+            request,
+            max_results=min(request.max_results, self._max_results),
+            content_results=min(
+                request.content_results,
+                self._max_content_results,
+                request.max_results,
+            ),
+        )
+        if self._budget is None:
+            return await self._search(limited_request)
+        async with self._budget.slot():
+            return await self._search(limited_request)
+
+    async def _search(self, request: SearchRequest) -> SearchResponse:
         attempts: list[SearchAttempt] = []
         fallback_reason: str | None = None
         for backend in self._backends:
@@ -150,7 +188,7 @@ class SearchRouter:
                     fallback_reason=fallback_reason,
                     error_code="startup_preflight_unavailable",
                 )
-                self._record(attempt)
+                await self._record(attempt)
                 attempts.append(attempt)
                 fallback_reason = attempt.status
                 continue
@@ -192,7 +230,7 @@ class SearchRouter:
                     request_id=backend_result.request_id,
                     cost_usd=backend_result.cost_usd,
                 )
-                self._record(attempt)
+                await self._record(attempt)
                 attempts.append(attempt)
                 if items:
                     return SearchResponse(
@@ -203,17 +241,19 @@ class SearchRouter:
                 fallback_reason = status
                 continue
 
-            self._record(attempt)
+            await self._record(attempt)
             attempts.append(attempt)
             fallback_reason = attempt.status
 
         return SearchResponse(items=(), attempts=tuple(attempts), final_provider=None)
 
-    def _record(self, attempt: SearchAttempt) -> None:
+    async def _record(self, attempt: SearchAttempt) -> None:
         if self._observer is None:
             return
         try:
-            self._observer(attempt)
+            result = self._observer(attempt)
+            if inspect.isawaitable(result):
+                await result
         except Exception:
             return
 
@@ -259,13 +299,18 @@ class ExaSearchBackend:
         for raw_item in raw_items:
             if not isinstance(raw_item, Mapping):
                 continue
+            keep_content = len(items) < request.content_results
             highlights_raw = raw_item.get("highlights")
             highlights = (
                 tuple(str(value) for value in highlights_raw if isinstance(value, str))
-                if isinstance(highlights_raw, list)
+                if keep_content and isinstance(highlights_raw, list)
                 else ()
             )
-            content = _optional_string(raw_item.get("text")) or ""
+            content = (
+                (_optional_string(raw_item.get("text")) or "")
+                if keep_content
+                else ""
+            )
             snippet = highlights[0] if highlights else content[:500]
             items.append(
                 SearchItem(

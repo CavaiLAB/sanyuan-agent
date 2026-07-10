@@ -33,9 +33,14 @@ class WebToolProvider:
         self,
         search_router: SearchRouter | None = None,
         reader_router: ReaderRouter | None = None,
+        *,
+        search_required_secrets: tuple[str, ...] = (),
+        fetch_required_secrets: tuple[str, ...] = (),
     ) -> None:
         self._search_router = search_router
         self._reader_router = reader_router
+        self._search_required_secrets = search_required_secrets
+        self._fetch_required_secrets = fetch_required_secrets
 
     def provide(self) -> list[ToolSpec]:
         # Build into a scratch registry, then re-emit the registered callables +
@@ -50,6 +55,7 @@ class WebToolProvider:
                 category="web",
                 capabilities=("web", "search"),
                 side_effect="read",
+                required_secrets=self._search_required_secrets,
             ),
             spec_from_callable(
                 fetch,
@@ -57,5 +63,6 @@ class WebToolProvider:
                 category="web",
                 capabilities=("web", "fetch"),
                 side_effect="read",
+                required_secrets=self._fetch_required_secrets,
             ),
         ]

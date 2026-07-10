@@ -8,6 +8,7 @@ from time import monotonic
 from typing import Any
 
 import pytest
+from neuroagent.tools.web_budget import WebRunBudget
 from neuroagent.tools.web_extract import extract_http_document
 from neuroagent.tools.web_policy import URLClassifier, safe_log_url
 from neuroagent.tools.web_reader import (
@@ -312,6 +313,39 @@ async def test_firecrawl_page_budget_fails_closed_without_extra_call() -> None:
     assert len(client.payloads) == 1
 
 
+async def test_firecrawl_budget_is_shared_across_reader_instances() -> None:
+    client = FakeFirecrawlClient({"data": {"markdown": "evidence " * 30}})
+    budget = WebRunBudget(max_firecrawl_pages=1)
+    first = FirecrawlReaderBackend(client, budget=budget)
+    second = FirecrawlReaderBackend(client, budget=budget)
+    request = FetchRequest(url="https://example.com/a")
+
+    first_result = await first.read(request, deadline=monotonic() + 5)
+    second_result = await second.read(request, deadline=monotonic() + 5)
+
+    assert first_result.status == "success"
+    assert second_result.status == "rate_limited"
+    assert second_result.error_code == "firecrawl_run_page_budget_exhausted"
+    assert len(client.payloads) == 1
+
+
+async def test_reader_router_awaits_async_observer() -> None:
+    attempts: list[str] = []
+
+    async def observe(attempt: Any) -> None:
+        attempts.append(attempt.provider)
+
+    router = ReaderRouter(
+        [HttpReaderBackend(FakeHttpClient(_response(b"short", "text/plain")))],
+        URLClassifier(FakeResolver()),
+        observer=observe,
+    )
+
+    await router.fetch(FetchRequest(url="https://example.com/a"))
+
+    assert attempts == ["http"]
+
+
 async def test_browser_reader_releases_session_and_returns_rendered_content() -> None:
     session = FakeBrowserSession()
 
@@ -328,6 +362,28 @@ async def test_browser_reader_releases_session_and_returns_rendered_content() ->
     assert document.final_url == "https://example.com/rendered"
     assert session.waits
     assert session.closed is True
+
+
+async def test_browser_session_budget_is_shared_across_reader_instances() -> None:
+    sessions: list[FakeBrowserSession] = []
+
+    async def factory(_: str) -> FakeBrowserSession:
+        session = FakeBrowserSession()
+        sessions.append(session)
+        return session
+
+    budget = WebRunBudget(max_browser_sessions=1)
+    first = BrowserReaderBackend(factory, run_key="run-1", budget=budget)
+    second = BrowserReaderBackend(factory, run_key="run-2", budget=budget)
+    request = FetchRequest(url="https://example.com/app")
+
+    first_result = await first.read(request, deadline=monotonic() + 10)
+    second_result = await second.read(request, deadline=monotonic() + 10)
+
+    assert first_result.status == "success"
+    assert second_result.status == "rate_limited"
+    assert second_result.error_code == "browser_run_session_budget_exhausted"
+    assert len(sessions) == 1
 
 
 async def test_browser_reader_propagates_navigation_policy_denial_and_closes() -> None:

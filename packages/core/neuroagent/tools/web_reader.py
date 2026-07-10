@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from time import monotonic, perf_counter
 from typing import Any
 from urllib.parse import urlsplit
 
 from neuroagent.tools.block_detect import detect_block
+from neuroagent.tools.web_budget import WebRunBudget
 from neuroagent.tools.web_extract import extract_http_document
 from neuroagent.tools.web_models import WebStatus
 from neuroagent.tools.web_policy import URLClassifier
@@ -28,7 +30,7 @@ from neuroagent.tools.web_reader_models import (
     SourceAdapter,
 )
 
-ReaderObserver = Callable[[FetchAttempt], None]
+ReaderObserver = Callable[[FetchAttempt], Awaitable[None] | None]
 _DOCUMENT_EXTENSIONS = (
     ".pdf",
     ".doc",
@@ -72,13 +74,15 @@ class FirecrawlReaderBackend:
         max_pages: int = 3,
         max_concurrency: int = 2,
         request_timeout_seconds: float = 20.0,
+        budget: WebRunBudget | None = None,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("Firecrawl max_concurrency must be positive")
         if request_timeout_seconds <= 0:
             raise ValueError("Firecrawl request timeout must be positive")
         self._client = client
-        self._budget = _PageBudget(max_pages)
+        self._page_budget = _PageBudget(max_pages)
+        self._run_budget = budget
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._request_timeout_seconds = request_timeout_seconds
 
@@ -103,7 +107,12 @@ class FirecrawlReaderBackend:
                 status="unsupported_content",
                 error_code="document_conversion_deferred",
             )
-        if not await self._budget.reserve():
+        budget_available = (
+            await self._run_budget.reserve("firecrawl")
+            if self._run_budget is not None
+            else await self._page_budget.reserve()
+        )
+        if not budget_available:
             return FetchDocument(
                 url=request.url,
                 final_url=request.url,
@@ -217,6 +226,7 @@ class BrowserReaderBackend:
         max_sessions: int = 1,
         max_concurrency: int = 1,
         page_wait_seconds: float = 8.0,
+        budget: WebRunBudget | None = None,
     ) -> None:
         if max_concurrency < 1:
             raise ValueError("Browser max_concurrency must be positive")
@@ -224,7 +234,8 @@ class BrowserReaderBackend:
             raise ValueError("Browser page wait must be positive")
         self._session_factory = session_factory
         self._run_key = run_key
-        self._budget = _PageBudget(max_sessions)
+        self._session_budget = _PageBudget(max_sessions)
+        self._run_budget = budget
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._page_wait_seconds = page_wait_seconds
 
@@ -241,7 +252,12 @@ class BrowserReaderBackend:
                 status="provider_unavailable",
                 error_code="browser_session_factory_unavailable",
             )
-        if not await self._budget.reserve():
+        budget_available = (
+            await self._run_budget.reserve("browser")
+            if self._run_budget is not None
+            else await self._session_budget.reserve()
+        )
+        if not budget_available:
             return FetchDocument(
                 url=request.url,
                 final_url=request.url,
@@ -481,6 +497,7 @@ class ReaderRouter:
         *,
         chain_timeout_seconds: float = 25.0,
         observer: ReaderObserver | None = None,
+        budget: WebRunBudget | None = None,
     ) -> None:
         if not backends:
             raise ValueError("ReaderRouter requires at least one backend")
@@ -490,8 +507,15 @@ class ReaderRouter:
         self._classifier = classifier
         self._chain_timeout_seconds = chain_timeout_seconds
         self._observer = observer
+        self._budget = budget
 
     async def fetch(self, request: FetchRequest) -> FetchDocument:
+        if self._budget is None:
+            return await self._fetch(request)
+        async with self._budget.slot():
+            return await self._fetch(request)
+
+    async def _fetch(self, request: FetchRequest) -> FetchDocument:
         classification = await self._classifier.classify(request.url)
         if not classification.allowed:
             attempt = FetchAttempt(
@@ -500,7 +524,7 @@ class ReaderRouter:
                 latency_ms=0,
                 error_code=classification.reason,
             )
-            self._record(attempt)
+            await self._record(attempt)
             return FetchDocument(
                 url=classification.redacted_url,
                 final_url=classification.redacted_url,
@@ -526,7 +550,7 @@ class ReaderRouter:
                     error_code="chain_deadline_exhausted",
                 )
                 attempts.append(attempt)
-                self._record(attempt)
+                await self._record(attempt)
                 break
             if not backend.available:
                 attempt = FetchAttempt(
@@ -537,7 +561,7 @@ class ReaderRouter:
                     error_code="startup_preflight_unavailable",
                 )
                 attempts.append(attempt)
-                self._record(attempt)
+                await self._record(attempt)
                 fallback_reason = attempt.status
                 continue
 
@@ -561,7 +585,7 @@ class ReaderRouter:
                         ),
                     )
                     attempts.append(attempt)
-                    self._record(attempt)
+                    await self._record(attempt)
                     return FetchDocument(
                         url=classification.redacted_url,
                         final_url=classification.redacted_url,
@@ -624,7 +648,7 @@ class ReaderRouter:
                 credits_used=document.credits_used,
             )
             attempts.append(attempt)
-            self._record(attempt)
+            await self._record(attempt)
             last_document = document
             if document.status == "success":
                 return replace(document, attempts=tuple(attempts))
@@ -653,11 +677,13 @@ class ReaderRouter:
             attempts=tuple(attempts),
         )
 
-    def _record(self, attempt: FetchAttempt) -> None:
+    async def _record(self, attempt: FetchAttempt) -> None:
         if self._observer is None:
             return
         try:
-            self._observer(attempt)
+            result = self._observer(attempt)
+            if inspect.isawaitable(result):
+                await result
         except Exception:
             return
 
