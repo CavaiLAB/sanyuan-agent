@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -86,6 +86,7 @@ class FetchAttempt:
     error_code: str | None = None
     request_id: str | None = None
     cost_usd: float | None = None
+    credits_used: int | None = None
 
 
 def wrap_untrusted_web_content(content: str, source_url: str) -> str:
@@ -118,6 +119,7 @@ class FetchDocument:
     retry_count: int = 0
     request_id: str | None = None
     cost_usd: float | None = None
+    credits_used: int | None = None
     error_code: str | None = None
     block_reason: str | None = None
     attempts: tuple[FetchAttempt, ...] = ()
@@ -152,6 +154,7 @@ class FetchDocument:
                     "error_code": attempt.error_code,
                     "request_id": attempt.request_id,
                     "cost_usd": attempt.cost_usd,
+                    "credits_used": attempt.credits_used,
                 }
                 for attempt in self.attempts
             ],
@@ -172,6 +175,25 @@ class ExaContentsClient(Protocol):
 
 
 @runtime_checkable
+class FirecrawlClient(Protocol):
+    async def scrape(self, payload: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+
+@runtime_checkable
+class BrowserReaderSession(Protocol):
+    async def navigate(self, url: str) -> dict[str, Any]: ...
+
+    async def wait_until_ready(self, timeout_ms: int) -> dict[str, Any]: ...
+
+    async def read_dom(self, selector: str = "body") -> dict[str, Any]: ...
+
+    async def close(self) -> None: ...
+
+
+BrowserReaderSessionFactory = Callable[[str], Awaitable[BrowserReaderSession]]
+
+
+@runtime_checkable
 class ReaderBackend(Protocol):
     name: str
     third_party: bool
@@ -183,12 +205,15 @@ class ReaderBackend(Protocol):
 
 
 __all__ = [
+    "BrowserReaderSession",
+    "BrowserReaderSessionFactory",
     "ExaContentsClient",
     "FetchAttempt",
     "FetchBackendError",
     "FetchDocument",
     "FetchProviderError",
     "FetchRequest",
+    "FirecrawlClient",
     "HttpFetchRequest",
     "HttpFetchResponse",
     "HttpReaderClient",

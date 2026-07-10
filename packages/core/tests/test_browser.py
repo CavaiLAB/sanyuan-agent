@@ -407,6 +407,33 @@ async def test_session_cache_by_thread_id() -> None:
     BrowserSession._clear_cache("thread-2")
 
 
+async def test_session_cache_separates_same_run_across_tenants() -> None:
+    first = BrowserSession.get_or_create("run-1", tenant_id="tenant-a")
+    second = BrowserSession.get_or_create("run-1", tenant_id="tenant-b")
+
+    assert first is not second
+    assert BrowserSession._cached("run-1", "tenant-a") is first
+    assert BrowserSession._cached("run-1", "tenant-b") is second
+
+    BrowserSession._clear_cache("run-1", "tenant-a")
+    BrowserSession._clear_cache("run-1", "tenant-b")
+
+
+async def test_navigate_policy_denial_does_not_start_playwright() -> None:
+    async def deny(_: str) -> str | None:
+        return "dns_non_public_ip"
+
+    session = BrowserSession(url_validator=deny)
+    result = await session.navigate("https://example.com")
+
+    assert result == {
+        "success": False,
+        "policy_denied": True,
+        "error_code": "dns_non_public_ip",
+    }
+    assert session._playwright is None
+
+
 # ---------------------------------------------------------------------------
 # 16. CDP client resolves URL from supervisor
 # ---------------------------------------------------------------------------

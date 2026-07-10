@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping, Sequence
+from time import monotonic
 from typing import Any
 
 import pytest
 from neuroagent.tools.web_extract import extract_http_document
 from neuroagent.tools.web_policy import URLClassifier, safe_log_url
-from neuroagent.tools.web_reader import ExaContentsBackend, HttpReaderBackend, ReaderRouter
+from neuroagent.tools.web_reader import (
+    BrowserReaderBackend,
+    ExaContentsBackend,
+    FirecrawlReaderBackend,
+    HttpReaderBackend,
+    ReaderRouter,
+)
 from neuroagent.tools.web_reader_models import (
     FetchDocument,
     FetchRequest,
@@ -56,6 +63,49 @@ class FakeExaClient:
     async def contents(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         self.payloads.append(payload)
         return self.response
+
+
+class FakeFirecrawlClient:
+    def __init__(self, response: Mapping[str, Any]) -> None:
+        self.response = response
+        self.payloads: list[Mapping[str, Any]] = []
+
+    async def scrape(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        self.payloads.append(payload)
+        return self.response
+
+
+class FakeBrowserSession:
+    def __init__(self, *, policy_denied: bool = False) -> None:
+        self.policy_denied = policy_denied
+        self.closed = False
+        self.waits: list[int] = []
+
+    async def navigate(self, url: str) -> dict[str, Any]:
+        if self.policy_denied:
+            return {
+                "success": False,
+                "policy_denied": True,
+                "error_code": "dns_non_public_ip",
+            }
+        return {"success": True, "url": url, "title": "Rendered"}
+
+    async def wait_until_ready(self, timeout_ms: int) -> dict[str, Any]:
+        self.waits.append(timeout_ms)
+        return {"success": True}
+
+    async def read_dom(self, selector: str = "body") -> dict[str, Any]:
+        assert selector == "body"
+        return {
+            "success": True,
+            "url": "https://example.com/rendered",
+            "title": "Rendered",
+            "text": "browser rendered evidence " * 20,
+            "html": "<main>browser rendered evidence</main>",
+        }
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 @pytest.mark.parametrize(
@@ -186,9 +236,7 @@ def test_detects_soft_captcha_and_login_wall() -> None:
 
 
 async def test_reader_router_http_then_exa_fallback() -> None:
-    http = HttpReaderBackend(
-        FakeHttpClient(_response(b"short", "text/plain"))
-    )
+    http = HttpReaderBackend(FakeHttpClient(_response(b"short", "text/plain")))
     exa_client = FakeExaClient(
         {
             "requestId": "req-1",
@@ -212,6 +260,89 @@ async def test_reader_router_http_then_exa_fallback() -> None:
     assert [attempt.status for attempt in document.attempts] == ["empty_content", "success"]
     assert document.attempts[1].fallback_reason == "empty_content"
     assert exa_client.payloads == [{"urls": ["https://example.com/a"], "text": True}]
+
+
+async def test_reader_router_calls_firecrawl_only_after_structured_failures() -> None:
+    firecrawl = FakeFirecrawlClient(
+        {
+            "success": True,
+            "creditsUsed": 1,
+            "data": {
+                "markdown": "firecrawl recovered evidence " * 20,
+                "metadata": {
+                    "title": "Recovered",
+                    "sourceURL": "https://example.com/final",
+                    "scrapeId": "scrape-1",
+                },
+            },
+        }
+    )
+    router = ReaderRouter(
+        [
+            HttpReaderBackend(FakeHttpClient(_response(b"short", "text/plain"))),
+            ExaContentsBackend(FakeExaClient({"results": []})),
+            FirecrawlReaderBackend(firecrawl),
+        ],
+        URLClassifier(FakeResolver()),
+    )
+
+    document = await router.fetch(FetchRequest(url="https://example.com/a"))
+
+    assert document.status == "success"
+    assert document.provider == "firecrawl"
+    assert document.credits_used == 1
+    assert [attempt.provider for attempt in document.attempts] == ["http", "exa", "firecrawl"]
+    assert firecrawl.payloads[0]["formats"] == ["markdown"]
+    assert firecrawl.payloads[0]["onlyMainContent"] is True
+    assert "agent" not in firecrawl.payloads[0]
+
+
+async def test_firecrawl_page_budget_fails_closed_without_extra_call() -> None:
+    client = FakeFirecrawlClient({"data": {"markdown": "evidence " * 30}})
+    backend = FirecrawlReaderBackend(client, max_pages=1)
+    request = FetchRequest(url="https://example.com/a")
+
+    first = await backend.read(request, deadline=monotonic() + 5)
+    second = await backend.read(request, deadline=monotonic() + 5)
+
+    assert first.status == "success"
+    assert second.status == "rate_limited"
+    assert second.error_code == "firecrawl_run_page_budget_exhausted"
+    assert len(client.payloads) == 1
+
+
+async def test_browser_reader_releases_session_and_returns_rendered_content() -> None:
+    session = FakeBrowserSession()
+
+    async def factory(run_key: str) -> FakeBrowserSession:
+        assert run_key == "tenant:run-1"
+        return session
+
+    backend = BrowserReaderBackend(factory, run_key="tenant:run-1")
+    document = await backend.read(
+        FetchRequest(url="https://example.com/app"), deadline=monotonic() + 10
+    )
+
+    assert document.status == "success"
+    assert document.final_url == "https://example.com/rendered"
+    assert session.waits
+    assert session.closed is True
+
+
+async def test_browser_reader_propagates_navigation_policy_denial_and_closes() -> None:
+    session = FakeBrowserSession(policy_denied=True)
+
+    async def factory(_: str) -> FakeBrowserSession:
+        return session
+
+    backend = BrowserReaderBackend(factory, run_key="run-1")
+    document = await backend.read(
+        FetchRequest(url="https://example.com/app"), deadline=monotonic() + 10
+    )
+
+    assert document.status == "policy_denied"
+    assert document.error_code == "dns_non_public_ip"
+    assert session.closed is True
 
 
 async def test_reader_router_policy_denial_never_calls_backend() -> None:
@@ -242,9 +373,7 @@ async def test_all_unavailable_returns_provider_unavailable_not_timeout() -> Non
 
 
 async def test_reader_router_blocks_dns_change_before_vendor_handoff() -> None:
-    classifier = URLClassifier(
-        SequenceResolver([(_PUBLIC_IP,), ("8.8.8.8",)])
-    )
+    classifier = URLClassifier(SequenceResolver([(_PUBLIC_IP,), ("8.8.8.8",)]))
     client = FakeExaClient({"results": []})
     router = ReaderRouter([ExaContentsBackend(client)], classifier)
     document = await router.fetch(FetchRequest(url="https://example.com/a"))

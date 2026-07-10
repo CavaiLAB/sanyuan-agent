@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from neuroagent.artifacts.client import StorageArtifactClient
@@ -23,8 +24,11 @@ _USER_AGENT = (
 )
 _DEFAULT_QUARANTINE_DIR = "/tmp/iclaw-quarantine"
 
-# Module-level session cache: thread_id → BrowserSession
+# Module-level session cache: tenant_id + run/thread_id → BrowserSession
 _session_cache: dict[str, BrowserSession] = {}
+
+URLValidator = Callable[[str], Awaitable[str | None]]
+CloseCallback = Callable[[], Awaitable[None]]
 
 
 def _safe_url(url: str) -> None:
@@ -52,11 +56,16 @@ class BrowserSession:
         timeout_ms: int = _DEFAULT_TIMEOUT,
         cdp_url: str | None = None,
         quarantine_dir: str | None = None,
+        url_validator: URLValidator | None = None,
+        close_callback: CloseCallback | None = None,
     ) -> None:
         self._artifact_client = artifact_client
         self._tenant_id = tenant_id
         self._timeout_ms = timeout_ms
         self._cdp_url = cdp_url
+        self._url_validator = url_validator
+        self._close_callback = close_callback
+        self._last_policy_error: str | None = None
         # Downloads never land in the workspace directly: they are written to an
         # isolated quarantine dir and flagged unscanned (Sandbox Spec — download
         # quarantine, Phase 1 safety baseline). Release is an explicit step.
@@ -73,22 +82,27 @@ class BrowserSession:
         thread_id: str,
         **kwargs: Any,
     ) -> BrowserSession:
-        """Return cached session for *thread_id*, or create a new one."""
-        if thread_id not in _session_cache:
-            _session_cache[thread_id] = cls(**kwargs)
-        return _session_cache[thread_id]
+        """Return a tenant+thread scoped session, or create a new one."""
+        key = cls._cache_key(thread_id, str(kwargs.get("tenant_id") or ""))
+        if key not in _session_cache:
+            _session_cache[key] = cls(**kwargs)
+        return _session_cache[key]
 
     @classmethod
-    def _cached(cls, thread_id: str) -> BrowserSession | None:
-        return _session_cache.get(thread_id)
+    def _cached(cls, thread_id: str, tenant_id: str = "") -> BrowserSession | None:
+        return _session_cache.get(cls._cache_key(thread_id, tenant_id))
 
     @classmethod
-    def _clear_cache(cls, thread_id: str) -> None:
-        _session_cache.pop(thread_id, None)
+    def _clear_cache(cls, thread_id: str, tenant_id: str = "") -> None:
+        _session_cache.pop(cls._cache_key(thread_id, tenant_id), None)
 
     @classmethod
     def _cache_size(cls) -> int:
         return len(_session_cache)
+
+    @staticmethod
+    def _cache_key(thread_id: str, tenant_id: str) -> str:
+        return f"{tenant_id}:{thread_id}" if tenant_id else thread_id
 
     async def _ensure_page(self) -> Any:
         """Lazily create/reuse a browser page."""
@@ -121,6 +135,9 @@ class BrowserSession:
                 accept_downloads=True,
             )
 
+        if getattr(self, "_url_validator", None) is not None:
+            await self._context.route("**/*", self._route_with_policy)
+
         pages = self._context.pages
         if pages:
             self._page = pages[0]
@@ -128,22 +145,73 @@ class BrowserSession:
             self._page = await self._context.new_page()
         return self._page
 
+    async def _validate_url(self, url: str) -> None:
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("Blocked: only http(s) URLs allowed")
+        validator = getattr(self, "_url_validator", None)
+        if validator is None:
+            _safe_url(url)
+            return
+        reason = await validator(url)
+        if reason:
+            self._last_policy_error = reason
+            raise ValueError(f"Blocked by URL policy: {reason}")
+
+    async def _route_with_policy(self, route: Any, request: Any) -> None:
+        url = str(request.url)
+        if not url.startswith(("http://", "https://")):
+            await route.continue_()
+            return
+        try:
+            await self._validate_url(url)
+        except ValueError:
+            await route.abort("blockedbyclient")
+            return
+        await route.continue_()
+
     # ---- Actions ----
 
     async def navigate(self, url: str) -> dict[str, Any]:
-        _safe_url(url)
+        self._last_policy_error = None
+        try:
+            await self._validate_url(url)
+        except ValueError:
+            if getattr(self, "_url_validator", None) is None:
+                raise
+            return {
+                "success": False,
+                "policy_denied": True,
+                "error_code": self._last_policy_error or "browser_url_policy_denied",
+            }
         page = await self._ensure_page()
         try:
-            await page.goto(
-                url, timeout=self._timeout_ms, wait_until="domcontentloaded"
-            )
+            await page.goto(url, timeout=self._timeout_ms, wait_until="domcontentloaded")
         except Exception as exc:
+            policy_error = self._current_policy_error()
+            if policy_error:
+                return {
+                    "success": False,
+                    "policy_denied": True,
+                    "error_code": policy_error,
+                }
             return {"success": False, "error": str(exc)}
         return {
             "success": True,
             "title": await page.title(),
             "url": page.url,
         }
+
+    def _current_policy_error(self) -> str | None:
+        return getattr(self, "_last_policy_error", None)
+
+    async def wait_until_ready(self, timeout_ms: int = _DEFAULT_TIMEOUT) -> dict[str, Any]:
+        """Best-effort network-idle wait; a busy analytics stream is not fatal."""
+        page = await self._ensure_page()
+        try:
+            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+            return {"success": True, "timed_out": False, "url": page.url}
+        except Exception:
+            return {"success": True, "timed_out": True, "url": page.url}
 
     async def click(self, selector: str) -> dict[str, Any]:
         page = await self._ensure_page()
@@ -174,9 +242,7 @@ class BrowserSession:
         """Take a screenshot. Returns base64 PNG and optionally uploads as artifact."""
         page = await self._ensure_page()
         try:
-            png_bytes = await page.screenshot(
-                timeout=self._timeout_ms, type="png"
-            )
+            png_bytes = await page.screenshot(timeout=self._timeout_ms, type="png")
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
@@ -261,9 +327,7 @@ class BrowserSession:
         os.makedirs(self._quarantine_dir, exist_ok=True)
         suggested = download.suggested_filename or "download"
         safe = re.sub(r"[^A-Za-z0-9._-]", "_", suggested) or "download"
-        dest = os.path.join(
-            self._quarantine_dir, f"{len(self._downloads):04d}-{safe}"
-        )
+        dest = os.path.join(self._quarantine_dir, f"{len(self._downloads):04d}-{safe}")
         await download.save_as(dest)
         try:
             with open(dest, "rb") as fh:
@@ -305,6 +369,13 @@ class BrowserSession:
             except Exception:
                 pass
         self._page = self._context = self._browser = self._playwright = None
+        close_callback = getattr(self, "_close_callback", None)
+        if close_callback is not None:
+            callback, self._close_callback = close_callback, None
+            try:
+                await callback()
+            except Exception:
+                logger.warning("browser sandbox cleanup failed", exc_info=True)
 
 
 _CONNECT_TIMEOUT = 15_000  # ms
