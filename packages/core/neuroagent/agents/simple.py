@@ -107,6 +107,7 @@ async def _stream_completion(
     base_kwargs: dict[str, Any],
     on_content_delta: Callable[[str], None],
     hold_chars: int,
+    on_tool_progress: Callable[[str, int], None] | None = None,
 ) -> Any:
     """Streaming variant of one completion: forward content deltas, return a
     response shaped like the non-streaming one (choices[0].message + usage).
@@ -122,6 +123,13 @@ async def _stream_completion(
       hold window almost immediately.
     Everything still accumulates into the returned message regardless of the
     gate, so the terminal final_answer frame always carries the full text.
+
+    *on_tool_progress* is the inverse of the gate: once tool_call deltas start
+    (and the body goes silent by design), it receives (tool_name, cumulative
+    argument chars) so the UI can show that a large tool payload — e.g. a whole
+    HTML file for artifact_write — is being written instead of dead air.
+    Throttled to every _TOOL_PROGRESS_STEP chars; cumulative, so a dropped
+    frame never corrupts the figure.
     """
     stream = await litellm_mod.acompletion(
         model=model,
@@ -147,6 +155,7 @@ async def _stream_completion(
     buffered = ""
     flushed = False
     saw_tool_call = False
+    progress_last = -1
 
     async for chunk in stream:
         chunk_usage = getattr(chunk, "usage", None)
@@ -173,6 +182,14 @@ async def _stream_completion(
                     slot["name"] = fn.name
                 # Arguments stream as JSON fragments — concatenate.
                 slot["arguments"] += getattr(fn, "arguments", None) or ""
+
+        if saw_tool_call and on_tool_progress is not None:
+            first = tool_calls_by_index.get(min(tool_calls_by_index), {})
+            name = first.get("name", "")
+            total = sum(len(slot["arguments"]) for slot in tool_calls_by_index.values())
+            if name and (progress_last < 0 or total - progress_last >= _TOOL_PROGRESS_STEP):
+                progress_last = total
+                on_tool_progress(name, total)
 
         piece = getattr(delta, "content", None)
         if piece:
@@ -215,6 +232,7 @@ async def _call_llm(
     max_tokens: int | None = None,
     on_content_delta: Callable[[str], None] | None = None,
     hold_chars: int = 0,
+    on_tool_progress: Callable[[str, int], None] | None = None,
 ) -> Any:
     """Unified async LLM call via LiteLLM.
 
@@ -277,7 +295,12 @@ async def _call_llm(
         try:
             if on_content_delta is not None:
                 return await _stream_completion(
-                    litellm, model, base_kwargs, _guarded_delta, hold_chars
+                    litellm,
+                    model,
+                    base_kwargs,
+                    _guarded_delta,
+                    hold_chars,
+                    on_tool_progress=on_tool_progress,
                 )
             return await litellm.acompletion(model=model, **base_kwargs)
         except fallback_exceptions as exc:
@@ -301,6 +324,10 @@ async def _call_llm(
 # nothing; a real final answer crosses it within its first sentence or two.
 _FINAL_STREAM_HOLD_CHARS = 160
 
+# Emit a tool-argument progress signal every this many streamed argument chars.
+# Coarse on purpose: it's a liveness indicator, not a byte counter.
+_TOOL_PROGRESS_STEP = 512
+
 
 def _maybe_stream_writer() -> Callable[[dict[str, Any]], None] | None:
     """LangGraph custom-stream writer, or None outside a streaming context
@@ -322,6 +349,19 @@ def _final_delta_sink(
 
     def _sink(piece: str) -> None:
         writer({"kind": "final_delta", "content": piece})
+
+    return _sink
+
+
+def _tool_progress_sink(
+    writer: Callable[[dict[str, Any]], None] | None,
+) -> Callable[[str, int], None] | None:
+    """Adapt the graph writer into the ``on_tool_progress`` callback shape."""
+    if writer is None:
+        return None
+
+    def _sink(name: str, chars: int) -> None:
+        writer({"kind": "tool_progress", "name": name, "chars": chars})
 
     return _sink
 
@@ -695,6 +735,13 @@ def build_simple_agent(
                 else None
             ),
             hold_chars=_FINAL_STREAM_HOLD_CHARS,
+            # The gate's counterpart: while a tool turn silently generates a
+            # large argument payload, surface (tool name, cumulative chars).
+            on_tool_progress=(
+                _tool_progress_sink(_maybe_stream_writer())
+                if state.get("stream_final")
+                else None
+            ),
         )
         usage = _get_usage(response)
         tcs = _get_tool_calls(response)
