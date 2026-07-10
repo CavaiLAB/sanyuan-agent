@@ -139,3 +139,50 @@ async def test_no_callback_keeps_plain_call():
     with patch("litellm.acompletion", new=plain_acompletion):
         resp = await _call_llm(_PROVIDER, [], [])
     assert resp.choices[0].message.content == "plain"
+
+
+async def test_tool_progress_reports_name_and_cumulative_chars():
+    big_a = '{"filename": "fireworks.html", "content": "' + "x" * 700
+    big_b = "y" * 700 + '"}'
+    chunks = [
+        _chunk(content="我来创建文件"),
+        _chunk(tool_calls=[_tc(0, "tc-1", "artifact_write", big_a)]),
+        _chunk(tool_calls=[_tc(0, None, None, big_b)]),
+    ]
+    got: list[str] = []
+    progress: list[tuple[str, int]] = []
+    with patch("litellm.acompletion", new=_fake_stream(chunks)):
+        resp = await _call_llm(
+            _PROVIDER,
+            [],
+            [],
+            on_content_delta=got.append,
+            hold_chars=160,
+            on_tool_progress=lambda name, chars: progress.append((name, chars)),
+        )
+    # The narration gate still holds (nothing leaks into the body)…
+    assert got == []
+    # …while the progress channel reports the tool by name with a growing
+    # cumulative counter (first sighting, then every _TOOL_PROGRESS_STEP).
+    assert progress, "expected at least one progress signal"
+    assert all(name == "artifact_write" for name, _ in progress)
+    counts = [chars for _, chars in progress]
+    assert counts == sorted(counts)
+    assert counts[-1] == len(big_a) + len(big_b)
+    args = resp.choices[0].message.tool_calls[0].function.arguments
+    assert args == big_a + big_b
+
+
+async def test_no_tool_progress_on_final_answer_turns():
+    chunks = [_chunk(content="a" * 200)]
+    progress: list[tuple[str, int]] = []
+    with patch("litellm.acompletion", new=_fake_stream(chunks)):
+        await _call_llm(
+            _PROVIDER,
+            [],
+            [],
+            on_content_delta=lambda _p: None,
+            hold_chars=160,
+            on_tool_progress=lambda name, chars: progress.append((name, chars)),
+        )
+    assert progress == []
