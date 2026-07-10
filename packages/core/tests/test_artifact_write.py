@@ -82,9 +82,7 @@ class TestArtifactWriteTool:
         # the conversation file panel (which lists by conversation_id) surfaces it.
         registry = ToolRegistry()
         fake = FakeClient()
-        tool = build_artifact_write_tool(
-            registry, fake, tenant_id="t1", conversation_id="conv-42"
-        )
+        tool = build_artifact_write_tool(registry, fake, tenant_id="t1", conversation_id="conv-42")
 
         await tool(filename="out.md", content="x")
 
@@ -108,6 +106,30 @@ class TestArtifactWriteTool:
         tool = build_artifact_write_tool(registry, fake, tenant_id="t1")
 
         await tool(filename="notes.txt", content="plain text")
+
+        assert fake.calls[0]["content_type"] == "text/plain"
+
+    async def test_tool_guesses_content_type_from_filename(self) -> None:
+        # Models rarely pass content_type; an .html mislabeled text/plain breaks
+        # preview/download type decisions downstream, so the filename decides.
+        registry = ToolRegistry()
+        fake = FakeClient()
+        tool = build_artifact_write_tool(registry, fake, tenant_id="t1")
+
+        await tool(filename="fireworks.html", content="<html/>")
+        await tool(filename="chart.svg", content="<svg/>")
+        await tool(filename="unknown.zzz", content="?")
+
+        assert fake.calls[0]["content_type"] == "text/html"
+        assert fake.calls[1]["content_type"] == "image/svg+xml"
+        assert fake.calls[2]["content_type"] == "text/plain"
+
+    async def test_explicit_content_type_wins_over_filename(self) -> None:
+        registry = ToolRegistry()
+        fake = FakeClient()
+        tool = build_artifact_write_tool(registry, fake, tenant_id="t1")
+
+        await tool(filename="page.html", content="x", content_type="text/plain")
 
         assert fake.calls[0]["content_type"] == "text/plain"
 

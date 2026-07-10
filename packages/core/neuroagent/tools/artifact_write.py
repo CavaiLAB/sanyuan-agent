@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 from collections.abc import Awaitable, Callable
 
 from neuroagent.artifacts.client import ArtifactRef, StorageArtifactClient
@@ -32,12 +33,16 @@ def build_artifact_write_tool(
     async def artifact_write(
         filename: str,
         content: str,
-        content_type: str = "text/plain",
+        content_type: str = "",
     ) -> dict[str, str]:
+        # Models rarely pass content_type, and a mislabeled file (an .html
+        # stored as text/plain) skews every downstream type decision (preview
+        # pickers, download semantics). Default from the filename instead.
+        resolved_type = content_type or mimetypes.guess_type(filename)[0] or "text/plain"
         ref: ArtifactRef = await client.create_artifact(
             tenant_id=tenant_id,
             content_bytes=content.encode("utf-8"),
-            content_type=content_type,
+            content_type=resolved_type,
             filename=filename,
             conversation_id=conversation_id or None,
             kind="produced",
