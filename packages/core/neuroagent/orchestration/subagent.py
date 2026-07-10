@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Callable
@@ -109,8 +110,36 @@ def _tool_events_from_update(node_name: str, update: Any) -> list[dict[str, Any]
             }
             if extra.get("block_reason"):
                 event["block_reason"] = str(extra["block_reason"])
+            artifacts = _artifacts_from_tool_content(content)
+            if artifacts:
+                event["artifacts"] = artifacts
             events.append(event)
     return events
+
+
+def _artifacts_from_tool_content(content: Any) -> list[dict[str, str]]:
+    """Extract produced-artifact references from an artifact_write-style result.
+
+    Mirrors the chat path (``gateway/sse.py _build_tool_result_payload``): a
+    tool result that is a JSON object with ``artifact_id`` becomes one
+    ``{id, filename, url}`` entry, so workflow tool results drive the same
+    produced-file cards / panel registration the chat stream does. ``id`` is
+    the Storage artifact id — clients derive the same-origin content URL from
+    it and only use ``url`` verbatim for ``data:`` payloads.
+    """
+    try:
+        parsed = json.loads(content) if isinstance(content, str) else content
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, dict) or "artifact_id" not in parsed:
+        return []
+    return [
+        {
+            "id": str(parsed["artifact_id"]),
+            "filename": str(parsed.get("filename", "")),
+            "url": str(parsed.get("download_url", "")),
+        }
+    ]
 
 
 def _final_answer(state: dict[str, Any]) -> str:
@@ -137,6 +166,7 @@ async def run_subagent_outcome(
     llm_registry: LLMProviderRegistry,
     skill_registry: SkillRegistry | None = None,
     tool_event_observer: ToolEventObserver | None = None,
+    stream_final: bool = False,
     **agent_kwargs: Any,
 ) -> SubagentOutcome:
     """Run the worker declared by *spec* on *task*; return answer + usage.
@@ -152,6 +182,12 @@ async def run_subagent_outcome(
     happens — the observability seam for orchestration layers. Without one,
     the original single-shot ``ainvoke`` path is used, byte-for-byte
     unchanged. Both paths return the same outcome for the same run.
+
+    *stream_final* additionally opts the graph into live final-answer deltas
+    (the explicit ``stream_final`` state flag — never ambient detection) and
+    relays each ``{"kind": "final_delta", "content": ...}`` custom chunk to the
+    observer. It requires an observer: deltas with nobody to receive them
+    would silently change every LLM call to streaming for nothing.
     """
     loaded = load_agent_from_spec(
         spec,
@@ -160,6 +196,7 @@ async def run_subagent_outcome(
         skill_registry=skill_registry,
         **agent_kwargs,
     )
+    stream_final = bool(stream_final and tool_event_observer is not None)
     state: dict[str, Any] = {
         "messages": loaded.initial_messages(task),
         "next_action": None,
@@ -169,6 +206,7 @@ async def run_subagent_outcome(
         "sensory": None,
         "working": None,
         "usage": {},
+        **({"stream_final": True} if stream_final else {}),
     }
     if tool_event_observer is None:
         result = await loaded.graph.ainvoke(state)
@@ -180,7 +218,28 @@ async def run_subagent_outcome(
         # plan/finalize turns (same accounting as the chat SSE layer).
         messages = []
         usage_total = {"promptTokens": 0, "completionTokens": 0}
-        async for chunk in loaded.graph.astream(state, stream_mode="updates"):
+        # "custom" carries the plan node's live final-answer deltas; with a
+        # list stream_mode langgraph yields (mode, chunk) tuples, while bare
+        # dicts (test doubles / plain "updates" mode) stay updates.
+        stream_mode = ["updates", "custom"] if stream_final else "updates"
+        async for item in loaded.graph.astream(state, stream_mode=stream_mode):
+            if isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str):
+                mode, chunk = item
+            else:
+                mode, chunk = "updates", item
+            if mode == "custom":
+                if (
+                    isinstance(chunk, dict)
+                    and chunk.get("kind") == "final_delta"
+                    and chunk.get("content")
+                ):
+                    try:
+                        tool_event_observer({"kind": "final_delta", "content": chunk["content"]})
+                    except Exception:
+                        logger.warning("final delta observer failed (non-blocking)", exc_info=True)
+                continue
+            if not isinstance(chunk, dict):
+                continue
             for node_name, update in chunk.items():
                 if not isinstance(update, dict):
                     continue

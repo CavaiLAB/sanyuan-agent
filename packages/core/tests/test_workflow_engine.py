@@ -21,6 +21,7 @@ from neuroagent.config import AgentSpec
 from neuroagent.models import LLMProvider, LLMProviderRegistry
 from neuroagent.orchestration import (
     EVENT_AGENT_RUN_COMPLETED,
+    EVENT_AGENT_RUN_DELTA,
     EVENT_AGENT_RUN_PROGRESS,
     EVENT_AGENT_RUN_STARTED,
     EVENT_AGENT_TOOL_CALL,
@@ -1107,3 +1108,86 @@ class TestToolEventProjection:
         results = _events_of(events, EVENT_AGENT_TOOL_RESULT)
         assert len(results) == 1
         assert results[0].data["is_error"] is True
+
+
+class DeltaRecordingRunner(RecordingRunner):
+    """RecordingRunner that also accepts stream_final and emits scripted deltas."""
+
+    def __init__(
+        self,
+        outcomes: dict[str, str | Exception],
+        deltas: dict[str, list[str]] | None = None,
+    ) -> None:
+        super().__init__(outcomes)
+        self.deltas = deltas or {}
+        self.stream_final_by_worker: dict[str, bool] = {}
+
+    async def run(
+        self,
+        spec: AgentSpec,
+        brief: str,
+        *,
+        run_id: str,
+        tool_event_observer: Any = None,
+        stream_final: bool = False,
+    ) -> WorkerResult:
+        self.stream_final_by_worker[spec.name] = stream_final
+        if stream_final and tool_event_observer is not None:
+            for piece in self.deltas.get(spec.name, []):
+                tool_event_observer({"kind": "final_delta", "content": piece})
+        return await super().run(
+            spec, brief, run_id=run_id, tool_event_observer=tool_event_observer
+        )
+
+
+class TestSynthesisDeltaStreaming:
+    """stream_synthesis_deltas: live final-answer deltas from the synthesis run."""
+
+    async def test_deltas_project_between_synthesis_started_and_terminal(self) -> None:
+        runner = DeltaRecordingRunner(
+            {"alpha": "found A", "beta": "found B", "editor": "Merged findings"},
+            deltas={"editor": ["Merged", " findings"]},
+        )
+        engine = WorkflowEngine(runner=runner, stream_synthesis_deltas=True)
+        run, events = await engine.run_to_completion(_two_item_spec(synthesis=True))
+
+        deltas = _events_of(events, EVENT_AGENT_RUN_DELTA)
+        assert [d.data["content"] for d in deltas] == ["Merged", " findings"]
+        for d in deltas:
+            assert d.data["scope"] == "synthesis"
+            assert d.data["worker"] == "editor"
+            assert d.data["run_id"] == run.synthesis_run_id
+
+        # The invariant clients rely on: concat(deltas) == terminal result.
+        completed = _events_of(events, EVENT_WORKFLOW_COMPLETED)[0]
+        assert "".join(d.data["content"] for d in deltas) == completed.data["result"]
+
+        types = _types(events)
+        synth_idx = types.index(EVENT_SYNTHESIS_STARTED)
+        terminal_idx = types.index(EVENT_WORKFLOW_COMPLETED)
+        delta_idx = [i for i, t in enumerate(types) if t == EVENT_AGENT_RUN_DELTA]
+        assert delta_idx and all(synth_idx < i < terminal_idx for i in delta_idx)
+
+    async def test_only_synthesis_streams_never_work_items(self) -> None:
+        runner = DeltaRecordingRunner(
+            {"alpha": "found A", "beta": "found B", "editor": "report"},
+            deltas={"alpha": ["should never surface"], "editor": ["report"]},
+        )
+        engine = WorkflowEngine(runner=runner, stream_synthesis_deltas=True)
+        await engine.run_to_completion(_two_item_spec(synthesis=True))
+
+        assert runner.stream_final_by_worker["editor"] is True
+        assert runner.stream_final_by_worker["alpha"] is False
+        assert runner.stream_final_by_worker["beta"] is False
+
+    async def test_default_engine_streams_nothing_and_spares_legacy_runners(self) -> None:
+        # RecordingRunner has NO stream_final kwarg — a default engine must
+        # never pass it (batch/test consumers keep working unchanged).
+        runner = RecordingRunner(
+            {"alpha": "found A", "beta": "found B", "editor": "report"}
+        )
+        engine = WorkflowEngine(runner=runner)
+        run, events = await engine.run_to_completion(_two_item_spec(synthesis=True))
+
+        assert run.status == "succeeded"
+        assert _events_of(events, EVENT_AGENT_RUN_DELTA) == []

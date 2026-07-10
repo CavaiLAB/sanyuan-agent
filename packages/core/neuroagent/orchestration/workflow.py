@@ -254,6 +254,11 @@ EVENT_AGENT_RUN_STARTED = "agent_run_started"
 EVENT_AGENT_TOOL_CALL = "agent_tool_call"
 EVENT_AGENT_TOOL_RESULT = "agent_tool_result"
 EVENT_AGENT_RUN_PROGRESS = "agent_run_progress"
+# Live final-answer tokens from a streaming-enabled agent run ({scope, worker,
+# run_id, content}). Additive paint only: the terminal frame stays the
+# authoritative text and the deltas' concatenation equals it. Today only the
+# synthesis run streams (WorkflowEngine stream_synthesis_deltas opt-in).
+EVENT_AGENT_RUN_DELTA = "agent_run_delta"
 EVENT_AGENT_RUN_COMPLETED = "agent_run_completed"
 EVENT_PHASE_COMPLETED = "phase_completed"
 EVENT_SYNTHESIS_STARTED = "synthesis_started"
@@ -272,6 +277,7 @@ WORKFLOW_EVENT_TYPES: tuple[str, ...] = (
     EVENT_AGENT_TOOL_CALL,
     EVENT_AGENT_TOOL_RESULT,
     EVENT_AGENT_RUN_PROGRESS,
+    EVENT_AGENT_RUN_DELTA,
     EVENT_AGENT_RUN_COMPLETED,
     EVENT_PHASE_COMPLETED,
     EVENT_SYNTHESIS_STARTED,
@@ -292,11 +298,16 @@ WORKFLOW_EVENT_TYPES: tuple[str, ...] = (
 #   synthesized by the run registry, never the engine) comes last. A stream
 #   that ends with no terminal frame remains an abnormal end (engine crash
 #   emits a bare `error` frame). Tool and progress events appear ONLY on the
-#   streamed (observer) path, i.e. for workers that declared tool_sets —
+#   streamed (observer) path — workers that declared tool_sets, plus the
+#   synthesis run when the engine streams deltas; other
 #   pure-reasoning runs emit none (their usage arrives once, on
 #   agent_run_completed). agent_run_progress carries the run's CUMULATIVE
 #   usage after each completed reasoning turn (one LLM call), not a delta —
-#   a dropped frame never corrupts the figure.
+#   a dropped frame never corrupts the figure. agent_run_delta frames appear
+#   only when the engine was built with stream_synthesis_deltas, only between
+#   synthesis_started and the terminal event, and are pure live paint: their
+#   concatenation equals the terminal workflow_completed `result`, so a
+#   consumer that drops every one of them still renders the same final text.
 
 
 class WorkflowEvent(BaseModel):

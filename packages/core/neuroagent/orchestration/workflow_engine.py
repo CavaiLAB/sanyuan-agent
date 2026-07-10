@@ -34,6 +34,7 @@ from neuroagent.tools.registry import ToolRegistry
 from .subagent import ToolEventObserver, run_subagent_outcome
 from .workflow import (
     EVENT_AGENT_RUN_COMPLETED,
+    EVENT_AGENT_RUN_DELTA,
     EVENT_AGENT_RUN_PROGRESS,
     EVENT_AGENT_RUN_STARTED,
     EVENT_AGENT_TOOL_CALL,
@@ -77,6 +78,11 @@ class WorkerRunner(Protocol):
     (tool kinds → agent_tool_call/agent_tool_result, usage → the cumulative
     agent_run_progress frame). A runner that executes no tools simply never
     calls it.
+
+    *stream_final* opts the run into live final-answer deltas
+    (``{"kind": "final_delta", "content": ...}`` observer events). The engine
+    only passes the kwarg when built with ``stream_synthesis_deltas``, so
+    runners — including test fakes — that never see it keep working unchanged.
     """
 
     async def run(
@@ -86,6 +92,7 @@ class WorkerRunner(Protocol):
         *,
         run_id: str,
         tool_event_observer: ToolEventObserver | None = None,
+        stream_final: bool = False,
     ) -> WorkerResult: ...
 
 
@@ -157,10 +164,29 @@ class SubagentRunner:
         *,
         run_id: str,
         tool_event_observer: ToolEventObserver | None = None,
+        stream_final: bool = False,
     ) -> WorkerResult:
         if spec.tool_sets or spec.tools:
             outcome = await self._run_with_tools(
-                spec, brief, run_id=run_id, tool_event_observer=tool_event_observer
+                spec,
+                brief,
+                run_id=run_id,
+                tool_event_observer=tool_event_observer,
+                stream_final=stream_final,
+            )
+        elif stream_final and tool_event_observer is not None:
+            # A delta-streaming pure-reasoning run (synthesis): the observer IS
+            # the delta channel, so it must be threaded in even without tools.
+            outcome = await run_subagent_outcome(
+                spec,
+                brief,
+                tool_registry=self._tool_registry,
+                llm_registry=self._llm_registry,
+                skill_registry=self._skill_registry,
+                tool_event_observer=tool_event_observer,
+                stream_final=True,
+                run_id=run_id,
+                **self._agent_kwargs,
             )
         else:
             # Pure-reasoning workers keep the single-shot ainvoke path and
@@ -183,6 +209,7 @@ class SubagentRunner:
         *,
         run_id: str,
         tool_event_observer: ToolEventObserver | None = None,
+        stream_final: bool = False,
     ) -> Any:
         if self._tool_binder is None:
             raise RuntimeError(
@@ -200,6 +227,7 @@ class SubagentRunner:
                 tool_sets=self._tool_sets,
                 tool_providers=dict(binding.providers),
                 tool_event_observer=tool_event_observer,
+                stream_final=stream_final,
                 run_id=run_id,
                 **self._agent_kwargs,
             )
@@ -244,15 +272,23 @@ def _normalize_usage(usage: dict[str, int] | None) -> dict[str, int]:
 
 
 class WorkflowEngine:
-    """Drives a WorkflowSpec to completion, streaming WorkflowEvents."""
+    """Drives a WorkflowSpec to completion, streaming WorkflowEvents.
 
-    def __init__(self, *, runner: WorkerRunner) -> None:
+    *stream_synthesis_deltas* opts the synthesis run into live final-answer
+    deltas (agent_run_delta events). Explicit opt-in, default off: only the
+    SSE stream endpoint wants live paint — batch consumers (tests,
+    run_to_completion callers) keep non-streaming LLM calls, and fake runners
+    without the ``stream_final`` kwarg are never handed it.
+    """
+
+    def __init__(self, *, runner: WorkerRunner, stream_synthesis_deltas: bool = False) -> None:
         if runner is None:
             raise ValueError(
                 "WorkflowEngine requires a WorkerRunner — a workflow must never "
                 "pretend to delegate without one"
             )
         self._runner = runner
+        self._stream_synthesis_deltas = stream_synthesis_deltas
 
     def execute(
         self, spec: WorkflowSpec, *, workflow_run_id: str | None = None
@@ -406,12 +442,18 @@ class WorkflowEngine:
                     )
                 )
 
+            # stream_final is only passed when opted in, so runners (and test
+            # fakes) without the kwarg stay compatible with a default engine.
+            synthesis_kwargs: dict[str, Any] = (
+                {"stream_final": True} if self._stream_synthesis_deltas else {}
+            )
             runner_task = asyncio.create_task(
                 self._runner.run(
                     synthesis_spec,
                     synthesis_brief,
                     run_id=synthesis_run_id,
                     tool_event_observer=observe_synthesis_tool,
+                    **synthesis_kwargs,
                 )
             )
             runner_task.add_done_callback(lambda _task: synth_queue.put_nowait(None))
@@ -636,6 +678,8 @@ class WorkflowEngine:
             event_type = EVENT_AGENT_RUN_PROGRESS
         elif kind == "tool_call":
             event_type = EVENT_AGENT_TOOL_CALL
+        elif kind == "final_delta":
+            event_type = EVENT_AGENT_RUN_DELTA
         else:
             event_type = EVENT_AGENT_TOOL_RESULT
         payload = {key: value for key, value in tool_event.items() if key != "kind"}
