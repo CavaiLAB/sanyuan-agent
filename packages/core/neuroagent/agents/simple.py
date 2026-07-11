@@ -1,5 +1,6 @@
 """Simplified LangGraph agent (plan → act → tool_executor → observe → plan)."""
 
+import json
 import logging
 import os
 import time
@@ -107,7 +108,7 @@ async def _stream_completion(
     base_kwargs: dict[str, Any],
     on_content_delta: Callable[[str], None],
     hold_chars: int,
-    on_tool_progress: Callable[[str, int], None] | None = None,
+    on_tool_progress: Callable[[str, int, dict[str, Any]], None] | None = None,
 ) -> Any:
     """Streaming variant of one completion: forward content deltas, return a
     response shaped like the non-streaming one (choices[0].message + usage).
@@ -126,8 +127,9 @@ async def _stream_completion(
 
     *on_tool_progress* is the inverse of the gate: once tool_call deltas start
     (and the body goes silent by design), it receives (tool_name, cumulative
-    argument chars) so the UI can show that a large tool payload — e.g. a whole
-    HTML file for artifact_write — is being written instead of dead air.
+    argument chars, structured detail) so the UI can show that a large tool
+    payload — e.g. a whole HTML file for artifact_write — is being generated
+    instead of dead air.
     Throttled to every _TOOL_PROGRESS_STEP chars; cumulative, so a dropped
     frame never corrupts the figure.
     """
@@ -189,7 +191,8 @@ async def _stream_completion(
             total = sum(len(slot["arguments"]) for slot in tool_calls_by_index.values())
             if name and (progress_last < 0 or total - progress_last >= _TOOL_PROGRESS_STEP):
                 progress_last = total
-                on_tool_progress(name, total)
+                arguments = first.get("arguments", "")
+                on_tool_progress(name, total, _tool_progress_detail(name, arguments))
 
         piece = getattr(delta, "content", None)
         if piece:
@@ -232,7 +235,7 @@ async def _call_llm(
     max_tokens: int | None = None,
     on_content_delta: Callable[[str], None] | None = None,
     hold_chars: int = 0,
-    on_tool_progress: Callable[[str, int], None] | None = None,
+    on_tool_progress: Callable[[str, int, dict[str, Any]], None] | None = None,
 ) -> Any:
     """Unified async LLM call via LiteLLM.
 
@@ -329,6 +332,58 @@ _FINAL_STREAM_HOLD_CHARS = 160
 _TOOL_PROGRESS_STEP = 512
 
 
+def _decode_partial_json_string(arguments: str, field: str) -> str | None:
+    """Decode a complete JSON string field from an otherwise partial object."""
+    marker = f'"{field}"'
+    start = arguments.find(marker)
+    if start < 0:
+        return None
+    colon = arguments.find(":", start + len(marker))
+    if colon < 0:
+        return None
+    fragment = arguments[colon + 1 :].lstrip()
+    try:
+        value, _ = json.JSONDecoder().raw_decode(fragment)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return value if isinstance(value, str) else None
+
+
+def _partial_json_string_chars(arguments: str, field: str) -> int | None:
+    """Approximate generated chars for a JSON string that may still be open."""
+    decoded = _decode_partial_json_string(arguments, field)
+    if decoded is not None:
+        return len(decoded)
+    marker = f'"{field}"'
+    start = arguments.find(marker)
+    if start < 0:
+        return None
+    colon = arguments.find(":", start + len(marker))
+    if colon < 0:
+        return None
+    fragment = arguments[colon + 1 :].lstrip()
+    if not fragment.startswith('"'):
+        return None
+    # This is intentionally approximate: escaped JSON characters count as more
+    # than one byte on the wire.  The UI labels it as generated payload size,
+    # not the final artifact byte size.
+    return max(0, len(fragment) - 1)
+
+
+def _tool_progress_detail(name: str, arguments: str) -> dict[str, Any]:
+    """Return user-facing phase metadata without exposing argument contents."""
+    if name != "artifact_write":
+        return {"phase": "generating_tool_input"}
+    detail: dict[str, Any] = {"phase": "generating_artifact"}
+    filename = _decode_partial_json_string(arguments, "filename")
+    if filename:
+        detail["filename"] = filename
+    content_chars = _partial_json_string_chars(arguments, "content")
+    if content_chars is not None:
+        detail["contentChars"] = content_chars
+    return detail
+
+
 def _maybe_stream_writer() -> Callable[[dict[str, Any]], None] | None:
     """LangGraph custom-stream writer, or None outside a streaming context
     (ainvoke callers, older langgraph) — callers then take the non-stream path."""
@@ -355,13 +410,13 @@ def _final_delta_sink(
 
 def _tool_progress_sink(
     writer: Callable[[dict[str, Any]], None] | None,
-) -> Callable[[str, int], None] | None:
+) -> Callable[[str, int, dict[str, Any] | None], None] | None:
     """Adapt the graph writer into the ``on_tool_progress`` callback shape."""
     if writer is None:
         return None
 
-    def _sink(name: str, chars: int) -> None:
-        writer({"kind": "tool_progress", "name": name, "chars": chars})
+    def _sink(name: str, chars: int, detail: dict[str, Any] | None = None) -> None:
+        writer({"kind": "tool_progress", "name": name, "chars": chars, **(detail or {})})
 
     return _sink
 

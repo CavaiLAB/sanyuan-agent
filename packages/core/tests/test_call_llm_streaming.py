@@ -150,7 +150,7 @@ async def test_tool_progress_reports_name_and_cumulative_chars():
         _chunk(tool_calls=[_tc(0, None, None, big_b)]),
     ]
     got: list[str] = []
-    progress: list[tuple[str, int]] = []
+    progress: list[tuple[str, int, dict]] = []
     with patch("litellm.acompletion", new=_fake_stream(chunks)):
         resp = await _call_llm(
             _PROVIDER,
@@ -158,24 +158,31 @@ async def test_tool_progress_reports_name_and_cumulative_chars():
             [],
             on_content_delta=got.append,
             hold_chars=160,
-            on_tool_progress=lambda name, chars: progress.append((name, chars)),
+            on_tool_progress=lambda name, chars, detail: progress.append(
+                (name, chars, detail)
+            ),
         )
     # The narration gate still holds (nothing leaks into the body)…
     assert got == []
     # …while the progress channel reports the tool by name with a growing
     # cumulative counter (first sighting, then every _TOOL_PROGRESS_STEP).
     assert progress, "expected at least one progress signal"
-    assert all(name == "artifact_write" for name, _ in progress)
-    counts = [chars for _, chars in progress]
+    assert all(name == "artifact_write" for name, _, _ in progress)
+    counts = [chars for _, chars, _ in progress]
     assert counts == sorted(counts)
     assert counts[-1] == len(big_a) + len(big_b)
+    assert progress[-1][2] == {
+        "phase": "generating_artifact",
+        "filename": "fireworks.html",
+        "contentChars": 1400,
+    }
     args = resp.choices[0].message.tool_calls[0].function.arguments
     assert args == big_a + big_b
 
 
 async def test_no_tool_progress_on_final_answer_turns():
     chunks = [_chunk(content="a" * 200)]
-    progress: list[tuple[str, int]] = []
+    progress: list[tuple[str, int, dict]] = []
     with patch("litellm.acompletion", new=_fake_stream(chunks)):
         await _call_llm(
             _PROVIDER,
@@ -183,6 +190,8 @@ async def test_no_tool_progress_on_final_answer_turns():
             [],
             on_content_delta=lambda _p: None,
             hold_chars=160,
-            on_tool_progress=lambda name, chars: progress.append((name, chars)),
+            on_tool_progress=lambda name, chars, detail: progress.append(
+                (name, chars, detail)
+            ),
         )
     assert progress == []
