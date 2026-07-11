@@ -435,7 +435,7 @@ def build_web_search_tool(
 
 
 async def _ddg_search(query: str, max_results: int) -> list[SearchResult]:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
 
     def _sync_search() -> list[dict[str, Any]]:
         with DDGS() as ddgs:

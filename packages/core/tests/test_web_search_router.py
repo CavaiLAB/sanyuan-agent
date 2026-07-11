@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -64,6 +66,42 @@ class FakeExaClient:
     async def search(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         self.payloads.append(payload)
         return self.response
+
+
+async def test_duckduckgo_legacy_uses_ddgs_successfully(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from neuroagent.tools import web_search as module
+
+    class FakeDDGS:
+        def __enter__(self) -> FakeDDGS:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def text(self, query: str, *, max_results: int) -> list[dict[str, str]]:
+            assert query == "fallback query"
+            assert max_results == 2
+            return [
+                {
+                    "title": "Recovered",
+                    "href": "https://example.com/recovered",
+                    "body": "legacy evidence",
+                }
+            ]
+
+    monkeypatch.setitem(sys.modules, "ddgs", SimpleNamespace(DDGS=FakeDDGS))
+
+    results = await module._ddg_search("fallback query", 2)
+
+    assert results == [
+        SearchResult(
+            title="Recovered",
+            url="https://example.com/recovered",
+            snippet="legacy evidence",
+        )
+    ]
 
 
 @pytest.mark.parametrize("status", ["timeout", "rate_limited", "provider_unavailable"])
