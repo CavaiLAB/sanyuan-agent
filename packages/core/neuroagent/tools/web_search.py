@@ -47,6 +47,7 @@ class SearchResult:
 
 WebSearchTool = Callable[[str, int], Awaitable[list[SearchResult]]]
 SearchObserver = Callable[[SearchAttempt], Awaitable[None] | None]
+SearchRequestTransform = Callable[[SearchRequest], SearchRequest]
 
 
 def normalize_search_url(url: str) -> str:
@@ -136,6 +137,7 @@ class SearchRouter:
         budget: WebRunBudget | None = None,
         max_results: int = 100,
         max_content_results: int = 3,
+        request_transform: SearchRequestTransform | None = None,
     ) -> None:
         if not backends:
             raise ValueError("SearchRouter requires at least one backend")
@@ -148,8 +150,11 @@ class SearchRouter:
         self._budget = budget
         self._max_results = max_results
         self._max_content_results = max_content_results
+        self._request_transform = request_transform
 
     async def search(self, request: SearchRequest) -> SearchResponse:
+        if self._request_transform is not None:
+            request = self._request_transform(request)
         if self._budget is not None and not await self._budget.reserve("search"):
             attempt = SearchAttempt(
                 provider="quota",

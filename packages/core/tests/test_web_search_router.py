@@ -186,6 +186,29 @@ async def test_search_router_awaits_async_observer() -> None:
     assert attempts == ["empty"]
 
 
+async def test_search_router_applies_request_transform_before_backend() -> None:
+    backend = FakeBackend(
+        "exa",
+        items=(SearchItem(title="official", url="https://www.fifa.com/result"),),
+    )
+
+    def transform(request: SearchRequest) -> SearchRequest:
+        return SearchRequest(
+            query=f"official {request.query}",
+            max_results=request.max_results,
+            include_domains=("fifa.com",),
+            content_results=request.content_results,
+        )
+
+    response = await SearchRouter([backend], request_transform=transform).search(
+        SearchRequest(query="bracket")
+    )
+
+    assert response.items[0].title == "official"
+    assert backend.calls[0].query == "official bracket"
+    assert backend.calls[0].include_domains == ("fifa.com",)
+
+
 async def test_normalization_dedupe_domain_and_date_filters() -> None:
     backend = FakeBackend(
         "exa",
