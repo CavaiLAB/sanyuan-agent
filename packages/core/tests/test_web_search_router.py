@@ -149,8 +149,7 @@ async def test_shared_run_budget_caps_search_calls_and_request_size() -> None:
     backend = FakeBackend(
         "exa",
         items=tuple(
-            SearchItem(title=str(index), url=f"https://example.com/{index}")
-            for index in range(10)
+            SearchItem(title=str(index), url=f"https://example.com/{index}") for index in range(10)
         ),
     )
     router = SearchRouter(
@@ -160,9 +159,7 @@ async def test_shared_run_budget_caps_search_calls_and_request_size() -> None:
         max_content_results=2,
     )
 
-    first = await router.search(
-        SearchRequest(query="q", max_results=9, content_results=8)
-    )
+    first = await router.search(SearchRequest(query="q", max_results=9, content_results=8))
     second = await router.search(SearchRequest(query="q2"))
 
     assert len(first.items) == 4
@@ -320,6 +317,33 @@ async def test_exa_keeps_content_only_for_configured_result_budget() -> None:
         "",
     ]
     assert result.items[2].highlights == ()
+
+
+async def test_tool_request_transform_applies_before_selected_router() -> None:
+    backend = FakeBackend(
+        "legacy",
+        items=(SearchItem(title="official", url="https://www.fifa.com/bracket"),),
+    )
+    registry = ToolRegistry()
+
+    def transform(request: SearchRequest) -> SearchRequest:
+        return SearchRequest(
+            query=f"official {request.query}",
+            max_results=request.max_results,
+            include_domains=("fifa.com",),
+            content_results=request.content_results,
+        )
+
+    tool = build_web_search_tool(
+        registry,
+        router=SearchRouter([backend]),
+        request_transform=transform,
+    )
+    results = await tool("World Cup bracket", 3)
+
+    assert results[0].url == "https://www.fifa.com/bracket"
+    assert backend.calls[0].query == "official World Cup bracket"
+    assert backend.calls[0].include_domains == ("fifa.com",)
 
 
 async def test_public_tool_signature_unchanged_and_metadata_additive() -> None:

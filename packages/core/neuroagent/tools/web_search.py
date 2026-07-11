@@ -163,9 +163,7 @@ class SearchRouter:
                 error_code="web_search_run_budget_exhausted",
             )
             await self._record(attempt)
-            return SearchResponse(
-                items=(), attempts=(attempt,), final_provider=None
-            )
+            return SearchResponse(items=(), attempts=(attempt,), final_provider=None)
         limited_request = replace(
             request,
             max_results=min(request.max_results, self._max_results),
@@ -318,11 +316,7 @@ class ExaSearchBackend:
                 if keep_content and isinstance(highlights_raw, list)
                 else ()
             )
-            content = (
-                (_optional_string(raw_item.get("text")) or "")
-                if keep_content
-                else ""
-            )
+            content = (_optional_string(raw_item.get("text")) or "") if keep_content else ""
             snippet = highlights[0] if highlights else content[:500]
             items.append(
                 SearchItem(
@@ -406,20 +400,25 @@ def build_web_search_tool(
     api_key_env: str = "NEUROAGENT_WEB_SEARCH_API_KEY",
     *,
     router: SearchRouter | None = None,
+    request_transform: SearchRequestTransform | None = None,
 ) -> WebSearchTool:
-    """Register the compatible tool, optionally backed by an injected Router."""
-    selected_router = router or SearchRouter(
-        [LegacySearchBackend(os.environ.get(api_key_env))]
-    )
+    """Register the compatible tool, optionally backed by an injected Router.
+
+    ``request_transform`` is applied at the public tool boundary, before either
+    the injected Router or the legacy fallback.  App source policies therefore
+    cannot be bypassed when tenant routing is disabled or not allowlisted.
+    """
+    selected_router = router or SearchRouter([LegacySearchBackend(os.environ.get(api_key_env))])
 
     async def web_search(query: str, max_results: int = 5) -> list[SearchResult]:
-        response = await selected_router.search(
-            SearchRequest(
-                query=query,
-                max_results=min(max(max_results, 1), 100),
-                content_results=min(3, max(max_results, 1)),
-            )
+        request = SearchRequest(
+            query=query,
+            max_results=min(max(max_results, 1), 100),
+            content_results=min(3, max(max_results, 1)),
         )
+        if request_transform is not None:
+            request = request_transform(request)
+        response = await selected_router.search(request)
         return [
             SearchResult(
                 title=item.title,
