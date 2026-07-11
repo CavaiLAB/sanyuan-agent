@@ -279,7 +279,14 @@ class ExaSearchBackend:
             "type": "auto",
         }
         if request.content_results:
-            payload["contents"] = {"text": True, "highlights": True}
+            # Search content is discovery context; selected sources are fetched
+            # in full through web_fetch before they can become evidence. Bound
+            # each result so a 10-result search cannot transfer multi-megabyte
+            # page bodies only to discard seven of them below.
+            payload["contents"] = {
+                "text": {"maxCharacters": 4_000},
+                "highlights": True,
+            }
         if request.include_domains:
             payload["includeDomains"] = list(request.include_domains)
         if request.exclude_domains:

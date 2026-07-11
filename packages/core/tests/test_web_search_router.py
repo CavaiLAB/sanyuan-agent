@@ -227,7 +227,10 @@ async def test_exa_maps_contents_request_id_and_cost() -> None:
     assert result.items[0].highlights == ("important excerpt",)
     assert client.payloads[0]["numResults"] == 7
     assert client.payloads[0]["includeDomains"] == ["example.com"]
-    assert client.payloads[0]["contents"] == {"text": True, "highlights": True}
+    assert client.payloads[0]["contents"] == {
+        "text": {"maxCharacters": 4_000},
+        "highlights": True,
+    }
 
 
 async def test_exa_keeps_content_only_for_configured_result_budget() -> None:
