@@ -360,9 +360,7 @@ def _canonical_evidence_url(url: str) -> str | None:
     host = parsed.hostname.lower().rstrip(".")
     port = parsed.port
     netloc = f"{host}:{port}" if port else host
-    return urlunsplit(
-        (parsed.scheme.lower(), netloc, parsed.path or "/", parsed.query, "")
-    )
+    return urlunsplit((parsed.scheme.lower(), netloc, parsed.path or "/", parsed.query, ""))
 
 
 def _evidence_urls(items: Iterable[WorkItemRun]) -> set[str]:
@@ -386,9 +384,7 @@ def _cited_urls(answer: str) -> set[str]:
 
 
 def _requires_citation_evidence(spec: WorkflowSpec) -> bool:
-    return any(
-        "web_research" in worker.tool_sets for worker in spec.workers.values()
-    )
+    return any("web_research" in worker.tool_sets for worker in spec.workers.values())
 
 
 def _now() -> datetime:
@@ -419,7 +415,13 @@ class WorkflowEngine:
     without the ``stream_final`` kwarg are never handed it.
     """
 
-    def __init__(self, *, runner: WorkerRunner, stream_synthesis_deltas: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        runner: WorkerRunner,
+        stream_synthesis_deltas: bool = False,
+        context_window_tokens: int | None = None,
+    ) -> None:
         if runner is None:
             raise ValueError(
                 "WorkflowEngine requires a WorkerRunner — a workflow must never "
@@ -427,6 +429,11 @@ class WorkflowEngine:
             )
         self._runner = runner
         self._stream_synthesis_deltas = stream_synthesis_deltas
+        self._context_window_tokens = (
+            context_window_tokens
+            if context_window_tokens is not None and context_window_tokens > 0
+            else None
+        )
 
     def execute(
         self, spec: WorkflowSpec, *, workflow_run_id: str | None = None
@@ -636,9 +643,7 @@ class WorkflowEngine:
                     ):
                         yield event
                     return
-                _record_citation_check(
-                    "traceable" if allowed_urls else "no_fetched_evidence"
-                )
+                _record_citation_check("traceable" if allowed_urls else "no_fetched_evidence")
             run.synthesis_result = result.answer
             run.synthesis_usage = _normalize_usage(result.usage)
 
@@ -653,6 +658,20 @@ class WorkflowEngine:
                 "status": run.status,
                 "result": run.synthesis_result,
                 "usage": run.usage_total(),
+                **(
+                    {
+                        "contextUsage": {
+                            **run.synthesis_usage,
+                            **(
+                                {"contextWindowTokens": self._context_window_tokens}
+                                if self._context_window_tokens is not None
+                                else {}
+                            ),
+                        }
+                    }
+                    if run.synthesis_usage
+                    else {}
+                ),
                 "summary": run.summary(),
             },
         )
