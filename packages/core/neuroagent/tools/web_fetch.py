@@ -12,9 +12,10 @@ import httpx
 from neuroagent.tools.block_detect import detect_block
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 from neuroagent.tools.web_reader import ReaderRouter
-from neuroagent.tools.web_reader_models import FetchRequest
+from neuroagent.tools.web_reader_models import FetchDocument, FetchRequest
 
 WebFetchTool = Callable[[str], Awaitable[dict[str, Any]]]
+FetchDocumentTransform = Callable[[FetchDocument], FetchDocument]
 
 
 def build_web_fetch_tool(
@@ -23,6 +24,7 @@ def build_web_fetch_tool(
     timeout: int = 20,
     max_bytes: int = 2_000_000,
     reader_router: ReaderRouter | None = None,
+    document_transform: FetchDocumentTransform | None = None,
 ) -> WebFetchTool:
     """Return a bound web-fetch tool with SSRF guard.
 
@@ -38,6 +40,8 @@ def build_web_fetch_tool(
                     max_bytes=max_bytes,
                 )
             )
+            if document_transform is not None:
+                document = document_transform(document)
             return document.to_tool_result()
         _ssrf_guard(url)
         return await _fetch(url, timeout, max_bytes)

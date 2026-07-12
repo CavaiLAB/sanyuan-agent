@@ -27,6 +27,7 @@ from neuroagent.tools import (
 )
 from neuroagent.tools.provider import ToolProvider, register_provider
 from neuroagent.tools.registry import ToolRegistry
+from neuroagent.tools.web_reader_models import FetchDocument
 
 
 class _FakeFetch:
@@ -264,6 +265,37 @@ class TestWebFetchPreserved:
         assert schema["name"] == "web_fetch"
         assert set(schema["parameters"]["properties"]) == {"url"}
         assert schema["parameters"]["required"] == ["url"]
+
+    async def test_reader_document_transform_applies_before_serialization(self) -> None:
+        class FakeReaderRouter:
+            async def fetch(self, request):
+                return FetchDocument(
+                    url=request.url,
+                    final_url=request.url,
+                    provider="fake",
+                    status="success",
+                    content="original bulk",
+                )
+
+        def focus(document: FetchDocument) -> FetchDocument:
+            return FetchDocument(
+                url=document.url,
+                final_url=document.final_url,
+                provider=document.provider,
+                status=document.status,
+                content="focused evidence",
+            )
+
+        tool = build_web_fetch_tool(
+            ToolRegistry(),
+            reader_router=FakeReaderRouter(),
+            document_transform=focus,
+        )
+
+        result = await tool("https://example.com/page")
+
+        assert "focused evidence" in result["content"]
+        assert "original bulk" not in result["content"]
 
     async def test_ssrf_guard_inherited_as_per_link_error(self) -> None:
         # Default fetch is the real web_fetch, whose SSRF guard rejects localhost
