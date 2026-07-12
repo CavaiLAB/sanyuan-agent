@@ -50,10 +50,14 @@ class MemoryToolProvider:
         *,
         tenant_id: str = "",
         user_id: str = "",
+        project_id: str | None = None,
+        session_id: str | None = None,
     ) -> None:
         self._store = store
         self._tenant_id = tenant_id
         self._user_id = user_id
+        self._project_id = project_id
+        self._session_id = session_id
 
     def provide(self) -> list[ToolSpec]:
         scratch = ToolRegistry()
@@ -62,6 +66,8 @@ class MemoryToolProvider:
             self._store,
             tenant_id=self._tenant_id,
             user_id=self._user_id,
+            project_id=self._project_id,
+            session_id=self._session_id,
         )
         specs: list[ToolSpec] = []
         for name in scratch.list_tools():

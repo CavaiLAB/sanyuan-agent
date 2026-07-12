@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from neuroagent.memory.context import MemoryContext, validate_memory_context
 from neuroagent.memory.longterm.store import LongtermMemoryStore, ScopeKind
 from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 
@@ -17,6 +18,8 @@ def build_memory_tools(
     *,
     tenant_id: str = "",
     user_id: str = "",
+    project_id: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     """Register ``remember_this`` and ``recall_memories`` tools.
 
@@ -27,6 +30,7 @@ def build_memory_tools(
     async def remember_this(
         content: str,
         scope: str = "private",
+        level: str = "personal",
         importance: str = "0.5",
     ) -> dict[str, Any]:
         """Persist a piece of information to long-term memory.
@@ -34,6 +38,7 @@ def build_memory_tools(
         Args:
             content: The text to remember.
             scope: Access scope — "private" (only you), "team", or "tenant".
+            level: Context level — "personal", "project", or "session".
             importance: Float 0.0-1.0 indicating how important this memory is.
         """
         try:
@@ -45,6 +50,16 @@ def build_memory_tools(
             }
 
         owner_id = user_id if scope_enum == ScopeKind.PRIVATE else None
+        memory_project_id = project_id if level in {"project", "session"} else None
+        memory_session_id = session_id if level == "session" else None
+        try:
+            level_enum = validate_memory_context(
+                level,
+                project_id=memory_project_id,
+                session_id=memory_session_id,
+            )
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
         try:
             entry = await store.store(
                 tenant_id=tenant_id,
@@ -52,11 +67,15 @@ def build_memory_tools(
                 scope=scope_enum,
                 scope_owner_id=owner_id,
                 importance=float(importance),
+                level=level_enum,
+                project_id=memory_project_id,
+                session_id=memory_session_id,
             )
             return {
                 "success": True,
                 "memory_id": entry.id,
                 "scope": entry.scope.value,
+                "level": entry.level.value,
             }
         except Exception as exc:
             logger.warning("remember_this failed: %s", exc)
@@ -88,12 +107,15 @@ def build_memory_tools(
             scopes = [ScopeKind.PRIVATE, ScopeKind.TEAM, ScopeKind.TENANT]
 
         try:
+            context = MemoryContext(project_id=project_id, session_id=session_id)
             entries = await store.retrieve_semantic(
                 tenant_id=tenant_id,
                 query=query,
                 scope=scopes,
+                scope_owner_id=user_id or None,
                 limit=int(limit),
                 importance_threshold=float(importance_threshold),
+                context=context,
             )
             return {
                 "success": True,
@@ -103,6 +125,9 @@ def build_memory_tools(
                         "id": e.id,
                         "content": e.content,
                         "scope": e.scope.value,
+                        "level": e.level.value,
+                        "project_id": e.project_id,
+                        "session_id": e.session_id,
                         "importance": e.importance,
                         "similarity": e.similarity_score,
                         "created_at": e.created_at,

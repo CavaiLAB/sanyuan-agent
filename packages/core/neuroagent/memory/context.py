@@ -1,4 +1,4 @@
-"""Context-window trimming — bound the message list sent to the LLM.
+"""Memory context primitives plus context-window trimming.
 
 The agent loop appends messages on every tool round-trip, so a long
 conversation's ``state["messages"]`` grows without bound and eventually
@@ -12,10 +12,68 @@ result (which would break OpenAI tool-call pairing).
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 _CHARS_PER_TOKEN = 4
 _PER_MESSAGE_OVERHEAD = 4  # rough allowance for role/formatting tokens
+
+
+class MemoryLevel(StrEnum):
+    """Context level for a durable memory, orthogonal to access scope."""
+
+    PERSONAL = "personal"
+    PROJECT = "project"
+    SESSION = "session"
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryContext:
+    """Project/session context bound to one agent run."""
+
+    project_id: str | None = None
+    session_id: str | None = None
+
+
+def validate_memory_context(
+    level: MemoryLevel | str,
+    *,
+    project_id: str | None = None,
+    session_id: str | None = None,
+) -> MemoryLevel:
+    """Validate a level/context tuple and return the normalized enum."""
+    normalized = MemoryLevel(level)
+    if normalized is MemoryLevel.PERSONAL and (project_id or session_id):
+        raise ValueError("personal memory cannot carry project_id or session_id")
+    if normalized is MemoryLevel.PROJECT and (not project_id or session_id):
+        raise ValueError("project memory requires project_id and no session_id")
+    if normalized is MemoryLevel.SESSION and not session_id:
+        raise ValueError("session memory requires session_id")
+    return normalized
+
+
+def memory_visible_in_context(
+    level: MemoryLevel | str,
+    *,
+    memory_project_id: str | None = None,
+    memory_session_id: str | None = None,
+    context: MemoryContext | None = None,
+) -> bool:
+    """Return whether a record belongs to the run's ancestor context chain."""
+    normalized = validate_memory_context(
+        level,
+        project_id=memory_project_id,
+        session_id=memory_session_id,
+    )
+    bound = context or MemoryContext()
+    if normalized is MemoryLevel.PERSONAL:
+        return True
+    if normalized is MemoryLevel.PROJECT:
+        return bool(bound.project_id) and memory_project_id == bound.project_id
+    if not bound.session_id or memory_session_id != bound.session_id:
+        return False
+    return memory_project_id is None or memory_project_id == bound.project_id
 
 
 def estimate_tokens(text: str) -> int:

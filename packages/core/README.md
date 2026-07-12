@@ -33,6 +33,37 @@ uv add neuroagent
 neuroagent --config my-config.yaml --task "..."
 ```
 
+### 独立记忆上下文与 `MEMORY.md` 投影
+
+记忆模块的访问范围（`private/team/tenant`）与运行上下文
+（`personal/project/session`）是两个正交维度。上下文校验、祖先链可见性、投影渲染和
+原子落盘全部位于本包，不依赖 FastAPI、Redis 或 `neuroagent_app`：
+
+```python
+from neuroagent.memory import (
+    MemoryContext,
+    MemoryLevel,
+    materialize_memory_markdown,
+    memory_visible_in_context,
+    render_memory_markdown,
+)
+
+context = MemoryContext(project_id="project-1", session_id="conversation-1")
+assert memory_visible_in_context(
+    MemoryLevel.PROJECT,
+    memory_project_id="project-1",
+    context=context,
+)
+
+# records 只需提供 id/content/scope/level/project_id/session_id/created_at 字段。
+projection = render_memory_markdown(records)
+materialize_memory_markdown("./system/memory/MEMORY.md", projection)
+```
+
+PG 语义记忆的 `LongtermMemoryStore` 与 `build_memory_tools` 同样接受绑定的
+`project_id/session_id`；召回自动限制为个人记忆 + 当前项目 + 当前会话。应用层可以替换
+存储后端与 Home 路径，但无需复制这套上下文规则。
+
 ## 工具注册：Provider path 与旧 builder path
 
 工具注册有两条**等价且兼容**的路径。旧的 `build_*_tool` builder 不变，照常工作；

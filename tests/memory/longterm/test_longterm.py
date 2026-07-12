@@ -60,6 +60,9 @@ class _FakeRow:
     def __getitem__(self, key: str) -> Any:
         return self._data[key]
 
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
 
 class _FakeMappings:
     """Mimics SQLAlchemy result.mappings()."""
@@ -204,7 +207,8 @@ def test_create_provider_from_env() -> None:
 async def test_store_inserts_with_embedding(embedding: FakeEmbedding) -> None:
     session = _make_session([])
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     entry = await store.store(
         tenant_id=_TENANT_A,
@@ -244,7 +248,8 @@ async def test_retrieve_returns_similarity(embedding: FakeEmbedding) -> None:
     ]
     session = _make_session(rows)
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     results = await store.retrieve_semantic(
         tenant_id=_TENANT_A,
@@ -265,7 +270,8 @@ async def test_retrieve_returns_similarity(embedding: FakeEmbedding) -> None:
 async def test_tenant_isolation(embedding: FakeEmbedding) -> None:
     session = _make_session([])
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     results = await store.retrieve_semantic(
         tenant_id=_TENANT_B,
@@ -285,7 +291,8 @@ async def test_tenant_isolation(embedding: FakeEmbedding) -> None:
 async def test_scope_filtering(embedding: FakeEmbedding) -> None:
     session = _make_session([])
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     await store.retrieve_semantic(
         tenant_id=_TENANT_A,
@@ -306,7 +313,8 @@ async def test_scope_filtering(embedding: FakeEmbedding) -> None:
 async def test_importance_threshold(embedding: FakeEmbedding) -> None:
     session = _make_session([])
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     await store.retrieve_semantic(
         tenant_id=_TENANT_A,
@@ -325,7 +333,8 @@ async def test_importance_threshold(embedding: FakeEmbedding) -> None:
 async def test_top_k_limit(embedding: FakeEmbedding) -> None:
     session = _make_session([])
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     await store.retrieve_semantic(
         tenant_id=_TENANT_A,
@@ -344,7 +353,8 @@ async def test_top_k_limit(embedding: FakeEmbedding) -> None:
 async def test_expire_old(embedding: FakeEmbedding) -> None:
     session = _make_session([], rowcount=5)
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     cutoff = datetime.now(UTC)
     deleted = await store.expire_old(cutoff)
@@ -384,7 +394,8 @@ def test_memory_entry_fields() -> None:
 async def test_remember_this_success(registry: ToolRegistry, embedding: FakeEmbedding) -> None:
     session = _make_session([])
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     build_memory_tools(registry, store, tenant_id=_TENANT_A, user_id=_USER_A)
     fn = registry.get("remember_this")
@@ -398,10 +409,13 @@ async def test_remember_this_success(registry: ToolRegistry, embedding: FakeEmbe
 # ---------------------------------------------------------------------------
 
 
-async def test_remember_this_invalid_scope(registry: ToolRegistry, embedding: FakeEmbedding) -> None:
+async def test_remember_this_invalid_scope(
+    registry: ToolRegistry, embedding: FakeEmbedding
+) -> None:
     session = _make_session([])
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     build_memory_tools(registry, store, tenant_id=_TENANT_A, user_id=_USER_A)
     fn = registry.get("remember_this")
@@ -433,7 +447,8 @@ async def test_recall_memories_success(registry: ToolRegistry, embedding: FakeEm
     ]
     session = _make_session(rows)
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     build_memory_tools(registry, store, tenant_id=_TENANT_A, user_id=_USER_A)
     fn = registry.get("recall_memories")
@@ -451,7 +466,8 @@ async def test_recall_memories_success(registry: ToolRegistry, embedding: FakeEm
 async def test_recall_memories_empty(registry: ToolRegistry, embedding: FakeEmbedding) -> None:
     session = _make_session([])
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
     build_memory_tools(registry, store, tenant_id=_TENANT_A, user_id=_USER_A)
     fn = registry.get("recall_memories")
@@ -498,7 +514,8 @@ async def test_maybe_inject_longterm() -> None:
     session = _make_session(rows)
     embedding = FakeEmbedding()
     store = LongtermMemoryStore(
-        _make_session_factory(session), embedding,
+        _make_session_factory(session),
+        embedding,
     )
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": "Tell me facts"}]
@@ -507,6 +524,54 @@ async def test_maybe_inject_longterm() -> None:
     assert result[0]["role"] == "system"
     assert "Relevant memories" in result[0]["content"]
     assert "User fact" in result[0]["content"]
+
+
+async def test_context_chain_is_bound_in_semantic_query(embedding: FakeEmbedding) -> None:
+    from neuroagent.memory.context import MemoryContext
+
+    session = _make_session([])
+    store = LongtermMemoryStore(_make_session_factory(session), embedding)
+
+    await store.retrieve_semantic(
+        tenant_id=_TENANT_A,
+        query="context",
+        scope_owner_id=_USER_A,
+        context=MemoryContext(project_id="project-a", session_id="session-a"),
+    )
+
+    params = session.execute.call_args[0][1]
+    assert params["context_filter"] is True
+    assert params["project_id"] == "project-a"
+    assert params["session_id"] == "session-a"
+    assert params["owner_filter"] is True
+
+
+async def test_remember_this_binds_project_level(
+    registry: ToolRegistry,
+    embedding: FakeEmbedding,
+) -> None:
+    session = _make_session([])
+    store = LongtermMemoryStore(_make_session_factory(session), embedding)
+    build_memory_tools(
+        registry,
+        store,
+        tenant_id=_TENANT_A,
+        user_id=_USER_A,
+        project_id="project-a",
+        session_id="session-a",
+    )
+
+    result = await registry.get("remember_this")(
+        content="Project convention",
+        level="project",
+    )
+
+    assert result["success"] is True
+    assert result["level"] == "project"
+    params = session.execute.call_args[0][1]
+    assert params["level"] == "project"
+    assert params["project_id"] == "project-a"
+    assert params["session_id"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from neuroagent.memory.context import MemoryLevel
 from neuroagent.memory.longterm.store import ScopeKind
 from neuroagent.tools.memory import MemoryToolProvider
 from neuroagent.tools.provider import register_provider
@@ -22,6 +23,9 @@ class _Entry:
     content: str
     scope: ScopeKind
     importance: float
+    level: MemoryLevel = MemoryLevel.PERSONAL
+    project_id: str | None = None
+    session_id: str | None = None
     similarity_score: float = 0.9
     created_at: str = "2026-06-28T00:00:00Z"
 
@@ -33,16 +37,39 @@ class _FakeStore:
         self.saved: list[_Entry] = []
 
     async def store(
-        self, *, tenant_id, content, scope, scope_owner_id, importance
+        self,
+        *,
+        tenant_id,
+        content,
+        scope,
+        scope_owner_id,
+        importance,
+        level,
+        project_id,
+        session_id,
     ) -> _Entry:
         entry = _Entry(
-            id=f"m{len(self.saved)}", content=content, scope=scope, importance=importance
+            id=f"m{len(self.saved)}",
+            content=content,
+            scope=scope,
+            importance=importance,
+            level=level,
+            project_id=project_id,
+            session_id=session_id,
         )
         self.saved.append(entry)
         return entry
 
     async def retrieve_semantic(
-        self, *, tenant_id, query, scope, limit, importance_threshold
+        self,
+        *,
+        tenant_id,
+        query,
+        scope,
+        scope_owner_id,
+        limit,
+        importance_threshold,
+        context,
     ) -> list[_Entry]:
         hits = [e for e in self.saved if e.importance >= importance_threshold]
         return hits[:limit]
@@ -69,9 +96,7 @@ class TestExecution:
     async def test_remember_then_recall_roundtrip(self) -> None:
         store = _FakeStore()
         registry = ToolRegistry()
-        names = register_provider(
-            registry, MemoryToolProvider(store, tenant_id="t1", user_id="u1")
-        )
+        names = register_provider(registry, MemoryToolProvider(store, tenant_id="t1", user_id="u1"))
         assert set(names) == {"remember_this", "recall_memories"}
 
         saved = await registry.execute(
@@ -81,9 +106,7 @@ class TestExecution:
         assert saved["success"] is True
         assert saved["scope"] == "private"
 
-        found = await registry.execute(
-            "recall_memories", json.dumps({"query": "preferences"})
-        )
+        found = await registry.execute("recall_memories", json.dumps({"query": "preferences"}))
         assert found["success"] is True
         assert found["count"] == 1
         assert found["memories"][0]["content"] == "likes dark mode"

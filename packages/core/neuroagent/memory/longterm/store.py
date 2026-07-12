@@ -13,6 +13,11 @@ from sqlalchemy import Column, Index, MetaData, String, Table, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from neuroagent.memory.context import (
+    MemoryContext,
+    MemoryLevel,
+    validate_memory_context,
+)
 from neuroagent.memory.longterm.embedding import IEmbeddingProvider
 
 logger = logging.getLogger(__name__)
@@ -44,6 +49,9 @@ class MemoryEntry:
     metadata: dict[str, Any]
     created_at: str | None
     expires_at: str | None
+    level: MemoryLevel = MemoryLevel.PERSONAL
+    project_id: str | None = None
+    session_id: str | None = None
     similarity_score: float | None = None
 
 
@@ -61,6 +69,9 @@ def longterm_memory_table(dimension: int = PGVECTOR_DIM) -> Table:
         Column("scope", String(16), nullable=False, default="private"),
         Column("scope_owner_id", UUID(as_uuid=True), nullable=True),
         Column("content", Text, nullable=False),
+        Column("level", String(16), nullable=False, default="personal"),
+        Column("project_id", Text, nullable=True),
+        Column("session_id", Text, nullable=True),
         # embedding column managed by raw SQL (pgvector)
         Column("importance", String(), nullable=False, default="0.5"),
         Column("metadata", JSONB, nullable=False, default=dict),
@@ -115,8 +126,16 @@ class LongtermMemoryStore:
         importance: float = 0.5,
         metadata: dict[str, Any] | None = None,
         expires_at: datetime | None = None,
+        level: MemoryLevel | str = MemoryLevel.PERSONAL,
+        project_id: str | None = None,
+        session_id: str | None = None,
     ) -> MemoryEntry:
         """Embed *content* and persist to the longterm_memory table."""
+        normalized_level = validate_memory_context(
+            level,
+            project_id=project_id,
+            session_id=session_id,
+        )
         vec = await self._embedding.embed(content)
         entry_id = uuid.uuid4()
         meta = metadata or {}
@@ -127,22 +146,25 @@ class LongtermMemoryStore:
                     text(
                         "INSERT INTO memory.longterm_memory "
                         "(id, tenant_id, scope, scope_owner_id, content, "
-                        "embedding, importance, metadata, expires_at) "
+                        "embedding, importance, metadata, expires_at, level, "
+                        "project_id, session_id) "
                         "VALUES (:id, :tid, :scope, :owner, :content, "
-                        ":embedding::vector, :importance, :meta, :expires)"
+                        ":embedding::vector, :importance, :meta, :expires, :level, "
+                        ":project_id, :session_id)"
                     ),
                     {
                         "id": entry_id,
                         "tid": uuid.UUID(tenant_id),
                         "scope": scope.value,
-                        "owner": (
-                            uuid.UUID(scope_owner_id) if scope_owner_id else None
-                        ),
+                        "owner": (uuid.UUID(scope_owner_id) if scope_owner_id else None),
                         "content": content,
                         "embedding": _vec_to_pg(vec),
                         "importance": importance,
                         "meta": _json_to_str(meta),
                         "expires": expires_at,
+                        "level": normalized_level.value,
+                        "project_id": project_id,
+                        "session_id": session_id,
                     },
                 )
 
@@ -156,6 +178,9 @@ class LongtermMemoryStore:
             metadata=meta,
             created_at=datetime.now(UTC).isoformat(),
             expires_at=expires_at.isoformat() if expires_at else None,
+            level=normalized_level,
+            project_id=project_id,
+            session_id=session_id,
         )
 
     async def retrieve_semantic(
@@ -167,6 +192,7 @@ class LongtermMemoryStore:
         scope_owner_id: str | None = None,
         limit: int = 5,
         importance_threshold: float = 0.3,
+        context: MemoryContext | None = None,
     ) -> list[MemoryEntry]:
         """Semantic search via cosine similarity on pgvector.
 
@@ -181,13 +207,20 @@ class LongtermMemoryStore:
             rows = await session.execute(
                 text(
                     "SELECT id, tenant_id, scope, scope_owner_id, content, "
-                    "importance, metadata, created_at, expires_at, "
+                    "importance, metadata, created_at, expires_at, level, "
+                    "project_id, session_id, "
                     "1 - (embedding <=> :qvec::vector) AS similarity "
                     "FROM memory.longterm_memory "
                     "WHERE tenant_id = :tid "
                     "AND scope = ANY(:scopes) "
                     "AND importance >= :thresh "
                     "AND (expires_at IS NULL OR expires_at > now()) "
+                    "AND (:owner_filter = false OR scope <> 'private' "
+                    "OR scope_owner_id = CAST(:owner AS uuid)) "
+                    "AND (:context_filter = false OR level = 'personal' "
+                    "OR (level = 'project' AND project_id = :project_id) "
+                    "OR (level = 'session' AND session_id = :session_id "
+                    "AND (project_id IS NULL OR project_id = :project_id))) "
                     "ORDER BY embedding <=> :qvec::vector "
                     "LIMIT :lim"
                 ),
@@ -197,6 +230,11 @@ class LongtermMemoryStore:
                     "scopes": scope_values,
                     "thresh": importance_threshold,
                     "lim": limit,
+                    "owner_filter": scope_owner_id is not None,
+                    "owner": scope_owner_id,
+                    "context_filter": context is not None,
+                    "project_id": context.project_id if context else None,
+                    "session_id": context.session_id if context else None,
                 },
             )
             results = []
@@ -207,23 +245,16 @@ class LongtermMemoryStore:
                         tenant_id=str(row["tenant_id"]),
                         scope=ScopeKind(row["scope"]),
                         scope_owner_id=(
-                            str(row["scope_owner_id"])
-                            if row["scope_owner_id"]
-                            else None
+                            str(row["scope_owner_id"]) if row["scope_owner_id"] else None
                         ),
                         content=row["content"],
                         importance=float(row["importance"]),
                         metadata=row["metadata"] or {},
-                        created_at=(
-                            row["created_at"].isoformat()
-                            if row["created_at"]
-                            else None
-                        ),
-                        expires_at=(
-                            row["expires_at"].isoformat()
-                            if row["expires_at"]
-                            else None
-                        ),
+                        created_at=(row["created_at"].isoformat() if row["created_at"] else None),
+                        expires_at=(row["expires_at"].isoformat() if row["expires_at"] else None),
+                        level=MemoryLevel(row.get("level") or "personal"),
+                        project_id=row.get("project_id"),
+                        session_id=row.get("session_id"),
                         similarity_score=float(row["similarity"]),
                     )
                 )

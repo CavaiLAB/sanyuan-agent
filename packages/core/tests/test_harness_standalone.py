@@ -2,6 +2,7 @@
 
 import ast
 import subprocess
+import sys
 from pathlib import Path
 
 from neuroagent.cli import app
@@ -49,3 +50,30 @@ def test_no_imports_from_neuroagent_app() -> None:
                     violations.append(f"{py_file}: from {node.module} import ...")
 
     assert not violations, f"Boundary violation(s): {violations}"
+
+
+def test_memory_projection_public_api_imports_in_fresh_process() -> None:
+    """The memory feature imports and renders from the harness wheel alone."""
+    code = """
+from dataclasses import dataclass
+from neuroagent.memory import MemoryLevel, render_memory_markdown
+
+@dataclass
+class Record:
+    id: str = "m1"
+    content: str = "standalone"
+    scope: str = "private"
+    level: MemoryLevel = MemoryLevel.PERSONAL
+    project_id: str | None = None
+    session_id: str | None = None
+    created_at: str = "2026-01-01T00:00:00Z"
+
+assert render_memory_markdown([Record()]).line_by_id["m1"] > 0
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

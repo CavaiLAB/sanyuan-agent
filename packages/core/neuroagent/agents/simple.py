@@ -12,7 +12,7 @@ from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
 from neuroagent.agents.tool_executor import tool_executor_node
-from neuroagent.memory.context import trim_messages
+from neuroagent.memory.context import MemoryContext, trim_messages
 from neuroagent.memory.episodic import EpisodicMemory
 from neuroagent.memory.longterm.store import LongtermMemoryStore, ScopeKind
 from neuroagent.memory.recall import EpisodicRecall
@@ -581,6 +581,8 @@ async def _maybe_inject_longterm(
     longterm: LongtermMemoryStore | None,
     tenant_id: str,
     user_id: str,
+    project_id: str | None = None,
+    session_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch relevant long-term memories and inject as a system message."""
     if longterm is None or not tenant_id:
@@ -595,8 +597,10 @@ async def _maybe_inject_longterm(
             tenant_id=tenant_id,
             query=user_query,
             scope=[ScopeKind.PRIVATE, ScopeKind.TEAM, ScopeKind.TENANT],
+            scope_owner_id=user_id or None,
             limit=5,
             importance_threshold=0.3,
+            context=MemoryContext(project_id=project_id, session_id=session_id),
         )
         if not entries:
             return messages
@@ -705,6 +709,7 @@ def build_simple_agent(
     context_token_budget: int = 24000,
     tenant_id: str = "",
     conversation_id: str = "",
+    project_id: str = "",
     user_id: str = "",
     run_id: str = "",
 ) -> Any:
@@ -720,7 +725,8 @@ def build_simple_agent(
     If *episodic_recall* is already provided it takes precedence.
 
     *longterm_memory* enables semantic retrieval from the pgvector-backed
-    long-term store.  Results are injected into the plan node's system prompt.
+    long-term store. Results are restricted to the personal → matching project
+    → matching conversation context chain and injected into the plan prompt.
     """
     registry = ToolRegistry()
 
@@ -770,6 +776,8 @@ def build_simple_agent(
             longterm_memory,
             tenant_id,
             user_id,
+            project_id or None,
+            conversation_id or None,
         )
         # Last, most-salient instruction: narrate before acting, this turn.
         llm_messages = _inject_narration_reminder(llm_messages)
