@@ -18,6 +18,10 @@ from typing import Any
 
 _CHARS_PER_TOKEN = 4
 _PER_MESSAGE_OVERHEAD = 4  # rough allowance for role/formatting tokens
+# Fixed token charge for one inlined image (or other structured) content part,
+# so a base64 data: URI is never counted as ~len/4 text tokens (which would blow
+# the trim budget). Deliberately modest — real vision cost is model-specific.
+_IMAGE_PART_TOKENS = 512
 
 
 class MemoryLevel(StrEnum):
@@ -88,9 +92,31 @@ def _role(msg: Any) -> str:
     return str(getattr(msg, "type", getattr(msg, "role", "")))
 
 
-def _content(msg: Any) -> str:
-    content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
-    return content if isinstance(content, str) else str(content)
+def _content_tokens(content: Any) -> int:
+    """Estimate tokens for a message ``content`` (string or multimodal part list).
+
+    A multimodal user turn carries a list of content parts — text parts plus
+    ``image_url`` parts whose ``url`` is a base64 ``data:`` URI. Counting that
+    base64 as text (``str(content)`` → ~len/4 tokens) would estimate a single
+    inlined image at tens of thousands of tokens and collapse ``trim_messages``
+    to its ``keep_recent`` floor. Instead count text parts normally and charge
+    each image/structured part a small fixed cost — the real vision token cost is
+    model-specific, but it is nowhere near the base64 length.
+    """
+    if isinstance(content, str):
+        return estimate_tokens(content)
+    if isinstance(content, list):
+        total = 0
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                total += estimate_tokens(str(part.get("text", "")))
+            elif isinstance(part, dict):
+                # image_url / other structured parts: fixed cost, never the base64.
+                total += _IMAGE_PART_TOKENS
+            else:
+                total += estimate_tokens(str(part))
+        return total
+    return estimate_tokens(str(content))
 
 
 def _msg_tokens(msg: Any) -> int:
@@ -101,7 +127,8 @@ def _msg_tokens(msg: Any) -> int:
     extra = 0
     if tool_calls:
         extra = estimate_tokens(json.dumps(tool_calls, ensure_ascii=False, default=str))
-    return estimate_tokens(_content(msg)) + extra + _PER_MESSAGE_OVERHEAD
+    content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+    return _content_tokens(content) + extra + _PER_MESSAGE_OVERHEAD
 
 
 def trim_messages(

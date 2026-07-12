@@ -129,6 +129,34 @@ class TestTrimMessages:
         assert [tc["id"] for tc in after_marker.get("tool_calls", [])] == tc_ids
         assert all(isinstance(m, ToolMessage) for m in trimmed[-4:])
 
+    def test_inlined_image_not_counted_as_base64_text(self) -> None:
+        """A multimodal image turn must not be estimated at ~len(base64)/4 tokens.
+
+        Regression for the vision-inlining / trim interaction: counting the base64
+        data URI as text would push a single image over the budget and collapse
+        the conversation to keep_recent. The image part is charged a small fixed
+        cost, so an otherwise-small conversation stays untrimmed.
+        """
+        import base64
+
+        big_uri = "data:image/png;base64," + base64.b64encode(b"x" * 300_000).decode()
+        image_turn = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "what is in this image?"},
+                {"type": "image_url", "image_url": {"url": big_uri}},
+            ],
+        }
+        msgs: list[Any] = [
+            _msg("system", "You are helpful."),
+            image_turn,
+            _msg("assistant", "a diagram"),
+            _msg("user", "and the text?"),
+        ]
+        # ~400KB of base64 would be ~100k tokens if counted as text; with the fixed
+        # image charge the whole conversation is well under budget → unchanged.
+        assert trim_messages(msgs, token_budget=24_000) is msgs
+
     def test_tool_call_arguments_count_toward_budget(self) -> None:
         """Huge tool_calls arguments with empty content must trigger trimming."""
         msgs: list[Any] = [_msg("system", "s"), _msg("user", "task")]
