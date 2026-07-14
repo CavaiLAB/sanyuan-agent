@@ -8,7 +8,7 @@ Two boundaries are deliberate:
 1. **No real external API in the harness.** The provider talks only to an
    injected :class:`MultimodalClient` (a Protocol). The commercial side supplies
    a real client (vendor + credentials) later; tests supply a fake. harness
-   imports nothing from ``neuroagent_app`` / ``neuroagent_sandbox_supervisor``.
+   imports nothing from ``neuroagent_app`` / any host-side package.
 2. **Artifact/workspace output, never a bare local path.** Every tool returns a
    :class:`MultimodalArtifact` shape (``artifact_id`` / ``filename`` /
    ``content_type`` / ``download_url`` / ``sha256`` / optional ``workspace_ref``)

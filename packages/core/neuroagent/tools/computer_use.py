@@ -8,7 +8,7 @@ modal providers:
    talks only to an injected :class:`ComputerUseClient` (a Protocol). A real
    client (a cloud desktop / VNC bridge + credentials) is supplied later; tests
    pass a fake. harness imports nothing from ``neuroagent_app`` /
-   ``neuroagent_sandbox_supervisor`` and reads no secret.
+   any host-side package and reads no secret.
 2. **Structured result, never a raw desktop handle or path.** The tool returns a
    :class:`ComputerUseResult` (``status`` / ``summary`` / ``actions`` /
    ``session_id``) — a logical session label, not a connection handle.

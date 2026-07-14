@@ -143,7 +143,7 @@ loaded = load_agent_from_spec(
 
 - **不接真实外部 API**：provider 只调用注入的 `MultimodalClient`（Protocol）；商业侧
   后续注入真实 client（vendor + 凭证），测试注入 fake。harness 不 import
-  `neuroagent_app` / `sandbox_supervisor`、不读 env。
+  `neuroagent_app`、不读 env。
 - **artifact/workspace 返回，绝不裸路径**：每个工具返回 `MultimodalArtifact` 形态
   （`artifact_id` / `filename` / `content_type` / `download_url` / `sha256` / 可选
   `workspace_ref`），生成物是一等 artifact。
@@ -396,7 +396,7 @@ loaded = load_agent_from_spec(
 
 - **harness 内不接真实设备 / App / 桌面 / agent-link / 网络**：provider 只调用注入的
   `MobileUseClient`（Protocol）；真实 client（设备农场 / agent-link + 凭证）后续补，测试注入
-  `FakeMobileUseClient`。harness 不 import `neuroagent_app` / `sandbox_supervisor`、不读 secret。
+  `FakeMobileUseClient`。harness 不 import `neuroagent_app`、不读 secret。
 - **结构化返回，绝不裸设备句柄/路径**：工具返回 `MobileUseResult` 形态
   （`status` / `summary` / `actions` / `app` / `session_id`，`session_id` 是逻辑会话标识而非句柄）。
 
@@ -498,7 +498,7 @@ loaded = load_agent_from_spec(
 ```
 
 注意：`bash` / 文件类工具需要 `ISandboxProvider` + 会话注入，仍经 Sandbox Supervisor 边界执行，
-本 provider 不引入新的执行路径，也不 import `sandbox_supervisor`。
+本 provider 不引入新的执行路径，也不 import 宿主侧包。
 
 ### sandbox_tool provider（BaseTool 路径）
 

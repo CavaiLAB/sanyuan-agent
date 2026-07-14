@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Agent **开源核心**（Apache 2.0）。可独立发布到 PyPI、企业可裸用，并严格不依赖 `app/` 或 `sandbox_supervisor/` 的任何符号。
+Agent **开源核心**（Apache 2.0）。可独立发布到 PyPI、企业可裸用，并严格不依赖 `app/` 的任何符号。
 
 ## Status
 
@@ -28,7 +28,7 @@ Agent **开源核心**（Apache 2.0）。可独立发布到 PyPI、企业可裸�
 - **License 合规**：所有新加依赖必须 Apache 2.0 兼容（MIT / BSD / Apache 2.0 / ISC）；GPL 类传染性 License 不行。
 - **开源友好**：commit 信息假定会被外部阅读，不要带公司内部细节。
 - **Derived from**：重度借鉴 DeerFlow 的文件要加 `# Derived from bytedance/deer-flow (MIT): <path>` header（见 `../../../../docs/services/python/deerflow-reference.md` §9.3）。
-- **边界铁律**：不得 import `neuroagent_app` 或 `neuroagent_sandbox_supervisor`。
+- **边界铁律**：不得 import `neuroagent_app`（或任何宿主侧包）。
 
 ### Testing Requirements
 
@@ -40,7 +40,7 @@ Agent **开源核心**（Apache 2.0）。可独立发布到 PyPI、企业可裸�
 
 ### Internal
 
-- **不能** 依赖 `app/` 或 `sandbox_supervisor/`（CI / 测试硬检查）。
+- **不能** 依赖 `app/`（CI / 测试硬检查）。
 
 ### External
 

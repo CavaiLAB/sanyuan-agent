@@ -4,6 +4,9 @@
 >
 > **License**：DeerFlow 2.0 MIT；NeuroAgent `packages/harness/` Apache 2.0。两者兼容。**入库时 `NOTICE` 必须标注借鉴来源 + commit SHA**（见末尾）。
 
+
+> **退役注记（2026-07-14）**：下文提到的 `sandbox_supervisor/` 实现已随「沙箱统一 CubeSandbox」决策退役删除；本文档保留为当年借鉴映射的历史参考，路径不再存在。
+
 ## 目录
 
 - [0. DeerFlow 仓库拓扑](#0-deerflow-仓库拓扑)

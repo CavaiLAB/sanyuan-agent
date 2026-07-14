@@ -12,7 +12,7 @@ callables). These tests pin that the thin provider preserves their semantics:
    shell / python outputs are unchanged.
 5. context identity: set_sandbox_context flows into create_sandbox unchanged.
 
-No real IO / app / sandbox_supervisor imports / secrets - fakes only.
+No real IO / app imports / secrets - fakes only.
 """
 
 from __future__ import annotations

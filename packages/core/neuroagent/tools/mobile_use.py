@@ -7,7 +7,7 @@ boundaries mirror the multimodal provider:
    provider talks only to an injected :class:`MobileUseClient` (a Protocol). A
    real client (device farm / agent-link + credentials) is supplied later; tests
    pass a fake. harness imports nothing from ``neuroagent_app`` /
-   ``neuroagent_sandbox_supervisor`` and reads no secret.
+   any host-side package and reads no secret.
 2. **Structured result, never a raw device handle or path.** The tool returns a
    :class:`MobileUseResult` shape (``status`` / ``summary`` / ``actions`` /
    ``app`` / ``session_id``) - a logical session id, not a device handle.

@@ -20,7 +20,7 @@ existing callable (including MCP proxies carrying ``__tool_schema__``) into a
 spec, so old builders can be wrapped without changing their public API.
 
 Harness stays standalone: this module imports nothing from ``neuroagent_app``
-or ``neuroagent_sandbox_supervisor``.
+or other host-side packages.
 """
 
 from __future__ import annotations

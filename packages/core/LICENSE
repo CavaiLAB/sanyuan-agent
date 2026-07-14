@@ -23,7 +23,7 @@
 =================================================================
 
 本 Harness 层（packages/harness/）在 Apache License 2.0 下开源。
-仓库根目录的 app/、sandbox_supervisor/ 等目录不属于本许可证范围，
+仓库根目录的 app/ 等目录不属于本许可证范围，
 是独立的内部项目，许可证策略另行约定。
 
 本项目的 Sandbox 抽象、Skills SKILL.md 三级加载、Tool-Call Recovery、

@@ -10,9 +10,3 @@ packages/harness/neuroagent
 packages/harness/neuroagent/__pycache__
 packages/harness/tests
 packages/harness/tests/__pycache__
-packages/sandbox_supervisor
-packages/sandbox_supervisor/neuroagent_sandbox_supervisor
-packages/sandbox_supervisor/neuroagent_sandbox_supervisor/__pycache__
-packages/sandbox_supervisor/neuroagent_sandbox_supervisor/providers
-packages/sandbox_supervisor/tests
-packages/sandbox_supervisor/tests/__pycache__
