@@ -77,6 +77,14 @@ assert result["enforced"] is True
 后的后代回收，以及 Windows Job Object 仍需在桌面集成阶段增加独立行为证据，不能从本
 结果推断这些边界已验证。
 
+`LocalDesktopProvider` 把该原语适配为 Agent 已有的 `ISandboxProvider`：创建 session 时
+先验证沙箱强制力，shell 固定经 `/bin/sh -c` 进入 `CodexSandbox`；文本读写和目录枚举使用
+从已验证 workspace inode 打开的 no-follow 目录句柄，拒绝路径穿越、符号链接、硬链接、
+跨文件系统目录和超过 4 MiB 的文本。`upload_file` 仍默认拒绝任意宿主路径，必须等
+Workspace v3 用不可变 source grant 物化后再接入。这个 provider 只补齐 Agent runtime
+接口，不代表 stdin JSON→SSE 的 `local-run` CLI、LLM 凭据供给、Electron 打包或
+`execution_target.py` 已完成。
+
 ### 独立记忆上下文与 `MEMORY.md` 投影
 
 记忆模块的访问范围（`private/team/tenant`）与运行上下文

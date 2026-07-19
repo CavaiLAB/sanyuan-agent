@@ -424,6 +424,18 @@ class CodexSandbox:
         self._launcher_env["HOME"] = str(isolated_home)
         self._launcher_env["PATH"] = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
+    def require_workspace_binding(self) -> tuple[Path, tuple[int, int]]:
+        """Return the verified workspace path and its immutable filesystem identity.
+
+        Local-desktop adapters must not rediscover the workspace from caller input.
+        This method revalidates the build-pinned assets and private control layout,
+        then exposes the exact ``(device, inode)`` pair captured at construction so
+        an adapter can compare it with an opened no-follow directory descriptor.
+        """
+
+        self._require_trusted_assets()
+        return self._workspace_root, self._workspace_identity
+
     def _require_trusted_assets(self) -> tuple[str, str]:
         codex = _resolve_trusted_native_binary(
             str(self._codex_path), self._codex_sha256, label="codex_bin"
