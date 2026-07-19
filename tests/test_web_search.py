@@ -86,7 +86,7 @@ class TestWebSearchDuckDuckGo:
         mock_ddgs.text.return_value = ddg_items
 
         with patch(
-            "duckduckgo_search.DDGS", return_value=mock_ddgs
+            "ddgs.DDGS", return_value=mock_ddgs
         ):
             results = await tool("hello", max_results=1)
 
