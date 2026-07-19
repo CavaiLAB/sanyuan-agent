@@ -71,8 +71,12 @@ result = await sandbox.run(
 assert result["enforced"] is True
 ```
 
-该原语当前不会自行接入 Electron 或放开 `computer` 执行目标；桌面 sidecar 打包与派发
-仍需在后续切片显式接线。自定义 Codex permissions profile 也暂不支持，避免未经验证的
+Electron 安装包已从锁定的 `@openai/codex` 目标包提取原生 launcher；macOS 同时编译一个
+不需要运行时解包的最小 C probe。两者的版本/大小/SHA-256（以及 Codex 的 NOTICE/LICENSE）
+写入 ASAR 内 manifest，并在 sidecar 启动前从固定资源目录复核；
+目标机的 PATH、Node 或系统 Codex 不参与。该原语仍不会自行放开 `computer` 执行目标；
+provider/tool/grant 与权威 dispatch 的装配须在后续切片显式接线。自定义 Codex permissions
+profile 也暂不支持，避免未经验证的
 磁盘或网络权限扩张。本切片只行为验证文件系统边界；默认断网、POSIX 进程自行创建新会话
 后的后代回收，以及 Windows Job Object 仍需在桌面集成阶段增加独立行为证据，不能从本
 结果推断这些边界已验证。
@@ -93,8 +97,9 @@ payload 的 `mode` / `target` / `target_device_id`。模型、API endpoint
 可 HTTP）。CLI 在导入模型栈前将普通 stdout/stderr 隔离到 sink，SSE 使用复制的专用 fd；
 同时清除代理、云凭据、Python 注入和 TLS override 环境，固定证书校验并使用 LiteLLM 本地
 cost map。当前入口故意不绑定 shell/file/browser/skill/input
-能力，相关 materialization/grant 未接好时直接拒绝。它仍不代表 Electron `extraResources`
-打包/命令接线、可信凭据发放、Workspace/outbox 或 `execution_target.py` 已完成。
+能力，相关 materialization/grant 未接好时直接拒绝。安装包已把固定 Codex launcher、
+macOS 原生 probe 与 harness 放入 `extraResources`，但此入口仍不代表 provider/tool/grant 装配、可信凭据
+发放、Workspace/outbox 或 Edge v2 computer dispatch 已完成。
 
 ### 独立记忆上下文与 `MEMORY.md` 投影
 

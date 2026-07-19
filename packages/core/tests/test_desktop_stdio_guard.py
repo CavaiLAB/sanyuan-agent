@@ -18,6 +18,11 @@ def _run(script: str) -> subprocess.CompletedProcess[bytes]:
             "ICLAW_LOCAL_LLM_MODEL": "openai/local-test",
             "ICLAW_LOCAL_LLM_API_BASE": "https://llm.example.test/v1",
             "ICLAW_LOCAL_LLM_API_KEY": "allowed-key",
+            "ICLAW_LOCAL_CODEX_BIN": "/trusted/codex",
+            "ICLAW_LOCAL_CODEX_SHA256": "a" * 64,
+            "ICLAW_LOCAL_CODEX_VERSION": "0.136.0",
+            "ICLAW_LOCAL_PROBE_BIN": "/trusted/harness",
+            "ICLAW_LOCAL_PROBE_SHA256": "b" * 64,
             "AWS_ACCESS_KEY_ID": "forbidden-aws-key",
             "GOOGLE_APPLICATION_CREDENTIALS": "/forbidden/gcp.json",
             "HTTPS_PROXY": "http://forbidden-proxy.invalid",
@@ -60,6 +65,11 @@ async def runner(_stdin, stdout, *, env):
         and env.get("AIOHTTP_TRUST_ENV") == "False"
         and env.get("LITELLM_LOCAL_MODEL_COST_MAP") == "True"
         and env.get("ICLAW_LOCAL_LLM_API_KEY") == "allowed-key"
+        and env.get("ICLAW_LOCAL_CODEX_BIN") == "/trusted/codex"
+        and env.get("ICLAW_LOCAL_CODEX_SHA256") == "a" * 64
+        and env.get("ICLAW_LOCAL_CODEX_VERSION") == "0.136.0"
+        and env.get("ICLAW_LOCAL_PROBE_BIN") == "/trusted/harness"
+        and env.get("ICLAW_LOCAL_PROBE_SHA256") == "b" * 64
     )
     stdout.write(
         "event: final_answer\ndata: "
