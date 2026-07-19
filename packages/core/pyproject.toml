@@ -57,6 +57,11 @@ dev = [
     "sentence-transformers>=3.0.0",
 ]
 
+[dependency-groups]
+desktop-package = [
+    "pyinstaller==6.21.0",
+]
+
 [project.scripts]
 neuroagent = "neuroagent.cli:app"
 
