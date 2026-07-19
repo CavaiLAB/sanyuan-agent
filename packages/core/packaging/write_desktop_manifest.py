@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 _PROTOCOL = "iclaw.desktop-run.v1"
-_BASENAME = "neuroagent-desktop-harness"
+_BASENAME = "iclaw-desktop-harness"
 
 
 def _sha256(path: Path) -> str:

@@ -47,7 +47,7 @@ exe = EXE(
     analysis.binaries,
     analysis.datas,
     [],
-    name="neuroagent-desktop-harness",
+    name="iclaw-desktop-harness",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

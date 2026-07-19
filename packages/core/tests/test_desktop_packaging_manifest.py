@@ -24,9 +24,9 @@ def _module() -> ModuleType:
 @pytest.mark.parametrize(
     ("platform", "arch", "filename"),
     [
-        ("darwin", "arm64", "neuroagent-desktop-harness"),
-        ("darwin", "x64", "neuroagent-desktop-harness"),
-        ("win32", "x64", "neuroagent-desktop-harness.exe"),
+        ("darwin", "arm64", "iclaw-desktop-harness"),
+        ("darwin", "x64", "iclaw-desktop-harness"),
+        ("win32", "x64", "iclaw-desktop-harness.exe"),
     ],
 )
 def test_manifest_matches_the_fixed_runtime_contract(
@@ -63,7 +63,7 @@ def test_manifest_writer_rejects_wrong_names_and_unsupported_targets(tmp_path: P
     with pytest.raises(ValueError, match="fixed filename"):
         module.write_manifest(binary, tmp_path / "manifest.json", "darwin", "arm64")
 
-    windows_binary = tmp_path / "neuroagent-desktop-harness.exe"
+    windows_binary = tmp_path / "iclaw-desktop-harness.exe"
     windows_binary.write_bytes(b"x")
     with pytest.raises(ValueError, match="unsupported"):
         module.write_manifest(windows_binary, tmp_path / "manifest.json", "win32", "arm64")
