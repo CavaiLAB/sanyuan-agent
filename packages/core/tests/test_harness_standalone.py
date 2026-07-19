@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import neuroagent.cli as cli_module
 from neuroagent.cli import app
 from typer.testing import CliRunner
 
@@ -28,6 +29,14 @@ def test_console_script_prints_version() -> None:
     assert result.returncode == 0
     assert "neuroagent" in result.stdout
     assert "0.1.0" in result.stdout
+
+
+def test_desktop_run_command_propagates_protocol_exit(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(cli_module, "run_guarded_desktop_process", lambda: 7)
+    result = runner.invoke(app, ["desktop-run"])
+    assert result.exit_code == 7
 
 
 def test_no_imports_from_neuroagent_app() -> None:

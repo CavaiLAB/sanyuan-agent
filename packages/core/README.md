@@ -81,9 +81,20 @@ assert result["enforced"] is True
 先验证沙箱强制力，shell 固定经 `/bin/sh -c` 进入 `CodexSandbox`；文本读写和目录枚举使用
 从已验证 workspace inode 打开的 no-follow 目录句柄，拒绝路径穿越、符号链接、硬链接、
 跨文件系统目录和超过 4 MiB 的文本。`upload_file` 仍默认拒绝任意宿主路径，必须等
-Workspace v3 用不可变 source grant 物化后再接入。这个 provider 只补齐 Agent runtime
-接口，不代表 stdin JSON→SSE 的 `local-run` CLI、LLM 凭据供给、Electron 打包或
-`execution_target.py` 已完成。
+Workspace v3 用不可变 source grant 物化后再接入。
+
+`neuroagent desktop-run` 提供 Electron sidecar 需要的单次进程协议：stdin 只接受一行、
+最多 256 KiB 的 Edge 已授权请求，stdout 只输出 harness 共用 SSE。执行路由由 Edge 与
+专用命令入口决定；为兼容 legacy device 与 project-fixed 路由，runner 不采信也不要求
+payload 的 `mode` / `target` / `target_device_id`。模型、API endpoint
+和 key 只从显式的 `ICLAW_LOCAL_LLM_MODEL` / `ICLAW_LOCAL_LLM_API_BASE` /
+`ICLAW_LOCAL_LLM_API_KEY` 读取，模型必须是 `openai/<model>`，绝不采信请求里的 model、
+切换到其他 LiteLLM provider 或默认借用生产服务密钥；远端 endpoint 必须 HTTPS（loopback
+可 HTTP）。CLI 在导入模型栈前将普通 stdout/stderr 隔离到 sink，SSE 使用复制的专用 fd；
+同时清除代理、云凭据、Python 注入和 TLS override 环境，固定证书校验并使用 LiteLLM 本地
+cost map。当前入口故意不绑定 shell/file/browser/skill/input
+能力，相关 materialization/grant 未接好时直接拒绝。它仍不代表 Electron `extraResources`
+打包/命令接线、可信凭据发放、Workspace/outbox 或 `execution_target.py` 已完成。
 
 ### 独立记忆上下文与 `MEMORY.md` 投影
 
