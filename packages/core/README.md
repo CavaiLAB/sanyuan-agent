@@ -33,6 +33,50 @@ uv add neuroagent
 neuroagent --config my-config.yaml --task "..."
 ```
 
+### 桌面本地执行的 fail-closed 沙箱原语
+
+`neuroagent.local_desktop.CodexSandbox` 提供桌面 harness 使用的本地命令启动原语。
+它只接受构建清单中 SHA-256 固定的**原生** Codex 与 probe 可执行文件（拒绝
+`#!/usr/bin/env node` 等脚本 launcher），并绑定一个明确授权、非系统临时目录、权限为
+`0700` 的 Run control root；workspace 必须是它的 `0700` 直接子目录。构造时会从同一个
+已打开的源文件描述符复制并计算摘要，把两个原生可执行文件固定到 control root 下的
+只读 staging 目录，避免“先验摘要、后换文件”。launcher 只接收白名单环境变量，
+`HOME` / `CODEX_HOME` 固定到 workspace 之外的 control root，`TMPDIR` 则在 workspace 内
+按每次调用新建并在退出后清理，`PATH` 固定为系统目录；调用方不能用 `PATH` /
+`NODE_OPTIONS` / `PYTHONPATH` 覆盖来劫持探针后的真实执行。
+
+首次执行前会以随机 nonce 做两层行为探针：`:read-only` 必须明确拒绝 workspace 内写入；
+`:workspace` 必须允许 workspace 内写入且拒绝父目录旁路写入。任一二进制摘要、workspace
+身份、退出码、token 或文件结果不符即拒绝真实命令。当前只启用 POSIX 专用进程组；
+Windows 要等 Job Object launcher 落地后再开放，避免假隔离。stdout/stderr 各自有 4 MiB
+捕获上限；成功、失败、超时、取消和超限路径都会清理专用进程组，避免后台后代或输出耗尽
+拖垮本地 sidecar。
+
+```python
+from neuroagent.local_desktop import CodexSandbox
+
+sandbox = CodexSandbox(
+    codex_bin="/path/to/bundled/native-codex",
+    codex_sha256=build_manifest["codex_sha256"],
+    probe_bin="/path/to/bundled/neuroagent-sidecar",
+    probe_sha256=build_manifest["sidecar_sha256"],
+    probe_args_prefix=("sandbox-probe",),
+    control_root="/app-data/runs/run-123",
+    authorized_workspace_root="/app-data/runs/run-123/workspace",
+)
+result = await sandbox.run(
+    ["/usr/bin/python3", "-c", "print('inside sandbox')"],
+    relative_cwd="inputs",
+)
+assert result["enforced"] is True
+```
+
+该原语当前不会自行接入 Electron 或放开 `computer` 执行目标；桌面 sidecar 打包与派发
+仍需在后续切片显式接线。自定义 Codex permissions profile 也暂不支持，避免未经验证的
+磁盘或网络权限扩张。本切片只行为验证文件系统边界；默认断网、POSIX 进程自行创建新会话
+后的后代回收，以及 Windows Job Object 仍需在桌面集成阶段增加独立行为证据，不能从本
+结果推断这些边界已验证。
+
 ### 独立记忆上下文与 `MEMORY.md` 投影
 
 记忆模块的访问范围（`private/team/tenant`）与运行上下文
