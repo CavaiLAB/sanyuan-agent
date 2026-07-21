@@ -197,6 +197,13 @@ async def test_missing_trusted_config_is_stable_and_does_not_echo_request(
         (b"\xff\n", "INVALID_UTF8"),
         (b"x" * (256 * 1024 + 1), "REQUEST_TOO_LARGE"),
     ],
+    ids=[
+        "empty-request",
+        "malformed-json",
+        "invalid-framing",
+        "invalid-utf8",
+        "request-too-large",
+    ],
 )
 async def test_malformed_and_oversized_input_fails_closed(raw: bytes, code: str) -> None:
     stdout = StringIO()
