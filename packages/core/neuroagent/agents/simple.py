@@ -527,13 +527,21 @@ def _inject_episodic_summary(
 
 
 def _extract_user_query(messages: list[dict[str, Any]]) -> str:
-    """Find the first user message in the conversation."""
-    for msg in messages:
+    """Read the current user turn, excluding non-text multimodal payloads."""
+    for msg in reversed(messages):
         if isinstance(msg, dict) and msg.get("role") == "user":
             content = msg.get("content", "")
             if isinstance(content, str):
                 return content
-            return str(content)
+            if isinstance(content, list):
+                return "\n".join(
+                    part["text"]
+                    for part in content
+                    if isinstance(part, dict)
+                    and part.get("type") == "text"
+                    and isinstance(part.get("text"), str)
+                )
+            return ""
     return ""
 
 
@@ -542,6 +550,8 @@ async def _maybe_inject_recall(
     recall: EpisodicRecall | None,
     tenant_id: str,
     conversation_id: str,
+    *,
+    user_query: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch relevant episodes via recall and inject them as a system message.
 
@@ -551,7 +561,8 @@ async def _maybe_inject_recall(
     if recall is None or not tenant_id:
         return messages
 
-    user_query = _extract_user_query(messages)
+    if user_query is None:
+        user_query = _extract_user_query(messages)
     if not user_query.strip():
         return messages
 
@@ -583,12 +594,15 @@ async def _maybe_inject_longterm(
     user_id: str,
     project_id: str | None = None,
     session_id: str | None = None,
+    *,
+    user_query: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch relevant long-term memories and inject as a system message."""
     if longterm is None or not tenant_id:
         return messages
 
-    user_query = _extract_user_query(messages)
+    if user_query is None:
+        user_query = _extract_user_query(messages)
     if not user_query.strip():
         return messages
 
@@ -624,12 +638,15 @@ async def _maybe_inject_longterm(
 def _maybe_inject_skill(
     messages: list[dict[str, Any]],
     skill_registry: SkillRegistry | None,
+    *,
+    user_query: str | None = None,
 ) -> list[dict[str, Any]]:
     """Check user message for skill trigger keywords and inject skill prompt."""
     if skill_registry is None:
         return messages
 
-    user_query = _extract_user_query(messages)
+    if user_query is None:
+        user_query = _extract_user_query(messages)
     if not user_query.strip():
         return messages
 
@@ -655,22 +672,19 @@ async def _maybe_save_episode(
     tenant_id: str,
     conversation_id: str,
     session_started_at: float,
+    *,
+    final_answer: str,
 ) -> None:
     """Persist the completed turn to episodic memory.
 
-    Failures are logged but do not block the agent flow.
+    The terminal node supplies its new answer explicitly because its state
+    still ends at the preceding turn. Failures do not block the agent flow.
     """
     if episodic is None or not tenant_id or not conversation_id:
         return
 
     messages: list[Any] = state.get("messages", [])
     user_query = _extract_user_query(messages)
-    # Final answer is the last assistant message
-    final_answer = ""
-    for msg in reversed(messages):
-        if isinstance(msg, dict) and msg.get("role") == "assistant":
-            final_answer = msg.get("content", "")
-            break
 
     working = state.get("working")
     tool_call_count = 0
@@ -762,14 +776,19 @@ def build_simple_agent(
                     SensoryEvent(kind="user", content=last.get("content", ""))
                 )
 
+        # Choose retrieval context independently of the context-window budget.
+        user_query = _extract_user_query(state["messages"])
         bounded = trim_messages(state["messages"], token_budget=context_token_budget)
         llm_messages = _inject_working_summary(bounded, working)
-        llm_messages = _maybe_inject_skill(llm_messages, skill_registry)
+        llm_messages = _maybe_inject_skill(
+            llm_messages, skill_registry, user_query=user_query
+        )
         llm_messages = await _maybe_inject_recall(
             llm_messages,
             effective_recall,
             tenant_id,
             conversation_id,
+            user_query=user_query,
         )
         llm_messages = await _maybe_inject_longterm(
             llm_messages,
@@ -778,6 +797,7 @@ def build_simple_agent(
             user_id,
             project_id or None,
             conversation_id or None,
+            user_query=user_query,
         )
         # Last, most-salient instruction: narrate before acting, this turn.
         llm_messages = _inject_narration_reminder(llm_messages)
@@ -819,7 +839,8 @@ def build_simple_agent(
 
         # Session ends here — save episode asynchronously (best-effort)
         await _maybe_save_episode(
-            state, episodic_memory, tenant_id, conversation_id, session_started_at
+            state, episodic_memory, tenant_id, conversation_id, session_started_at,
+            final_answer=msg["content"],
         )
         return {"next_action": "stop", "messages": [msg], "usage": usage}
 
@@ -872,7 +893,8 @@ def build_simple_agent(
         )
         msg = {"role": "assistant", "content": content}
         await _maybe_save_episode(
-            state, episodic_memory, tenant_id, conversation_id, session_started_at
+            state, episodic_memory, tenant_id, conversation_id, session_started_at,
+            final_answer=content,
         )
         return {"next_action": "stop", "messages": [msg], "usage": usage}
 

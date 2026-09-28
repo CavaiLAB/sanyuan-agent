@@ -1,49 +1,9 @@
-<!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-04-20 | Updated: 2026-05-12 -->
+# Harness 开源核心
 
-# harness
+Apache 2.0 Agent 内核；入口见 [`README.md`](README.md) 和 `pyproject.toml`，源码在 `neuroagent/`。
 
-## Purpose
-
-Agent **开源核心**（Apache 2.0）。可独立发布到 PyPI、企业可裸用，并严格不依赖 `app/` 的任何符号。
-
-## Status
-
-**Phase 1 已进入实现态**。当前包已包含 CLI、agents、tools、sandbox、skills、memory、models、costs、artifacts、security 等模块以及包内测试；后续扩展必须优先保持 harness 的独立安装与独立运行能力。
-
-## Key Files
-
-| File | Description |
-|---|---|
-| `pyproject.toml` | Harness 独立包配置 |
-| `LICENSE` | Apache 2.0 全文 |
-| `README.md` | Harness 独立说明 |
-| `neuroagent/` | Harness 源码 |
-| `tests/` | Harness 包内测试 |
-
-## For AI Agents
-
-### Working In This Directory
-
-- **License 合规**：所有新加依赖必须 Apache 2.0 兼容（MIT / BSD / Apache 2.0 / ISC）；GPL 类传染性 License 不行。
-- **开源友好**：commit 信息假定会被外部阅读，不要带公司内部细节。
-- **Derived from**：重度借鉴 DeerFlow 的文件要加 `# Derived from bytedance/deer-flow (MIT): <path>` header（见 `../../../../docs/services/python/deerflow-reference.md` §9.3）。
-- **边界铁律**：不得 import `neuroagent_app`（或任何宿主侧包）。
-
-### Testing Requirements
-
-- 包内测试在 `tests/` 下。
-- Workspace 级边界与回归测试在 `../../tests/` 下。
-- 修改 public API 后同时更新 `README.md` 或服务侧 docs 中的示例。
-
-## Dependencies
-
-### Internal
-
-- **不能** 依赖 `app/`（CI / 测试硬检查）。
-
-### External
-
-- LangGraph / LiteLLM / Playwright / Pydantic v2 / structlog。
-
-<!-- MANUAL: -->
+- 不得依赖 `neuroagent_app` 或任何宿主侧包；保留独立安装、CLI 基本运行和公开 API 的兼容性。
+- 新依赖需符合本项目 Apache 2.0 许可约束；MIT / BSD / Apache 2.0 / ISC 可按现有政策核验，禁止引入 GPL 类不兼容依赖。
+- 重度借鉴 DeerFlow 的文件保留来源及许可 header，规则见 [`deerflow-reference.md`](../../../../docs/services/python/deerflow-reference.md)；提交和开源文件不泄露内部秘密。
+- 修改行为运行相关 `tests/`；边界变化同时运行 workspace 的 `../../tests/test_harness_boundary.py`，按需检查独立安装与入口。
+- 修改 public API 时同步 README 或长期服务文档的示例；工具执行、审计和租户边界沿用上级规则。

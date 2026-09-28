@@ -3,10 +3,9 @@
 The agent loop appends messages on every tool round-trip, so a long
 conversation's ``state["messages"]`` grows without bound and eventually
 overflows the model's context. ``trim_messages`` keeps the leading system
-messages and the first task turn, drops the middle, and keeps the most
-recent messages within a token budget — replacing the elided span with a
-single marker message and never starting the kept tail on an orphaned tool
-result (which would break OpenAI tool-call pairing).
+messages, the first task turn, and the latest user turn. It drops older
+conversation/tool logs and keeps the most recent messages within a token
+budget, marking elided spans without orphaning a tool result from its call.
 """
 
 from __future__ import annotations
@@ -139,10 +138,12 @@ def trim_messages(
 ) -> list[Any]:
     """Return *messages* bounded to roughly *token_budget* tokens.
 
-    Under budget the list is returned unchanged. Over budget the result is
-    ``[system…, first task turn, marker, recent tail]`` where the tail is the
-    longest suffix fitting the remaining budget (but at least *keep_recent*
-    messages) and never begins with a tool-result message.
+    Under budget the list is returned unchanged. Over budget, leading system
+    messages and the first task turn are retained. The latest user turn is also
+    protected, including any multimodal content, without pinning all its later
+    tool logs. The tail is the longest suffix fitting the
+    remaining budget (but at least *keep_recent* messages) and never begins with
+    a tool-result message. Elided spans are replaced with marker messages.
     """
     if sum(_msg_tokens(m) for m in messages) <= token_budget:
         return messages
@@ -161,10 +162,17 @@ def trim_messages(
         return messages
 
     budget = token_budget - sum(_msg_tokens(m) for m in head)
+    latest_user = next(
+        (index for index in range(len(body) - 1, -1, -1) if _role(body[index]) == "user"),
+        None,
+    )
+    if latest_user is not None:
+        budget -= _msg_tokens(body[latest_user])
     start = len(body)
     spent = 0
     while start > 0:
-        cost = _msg_tokens(body[start - 1])
+        # The current task's cost was reserved even if it also lands in the tail.
+        cost = 0 if start - 1 == latest_user else _msg_tokens(body[start - 1])
         if spent + cost > budget and (len(body) - start) >= keep_recent:
             break
         spent += cost
@@ -181,8 +189,16 @@ def trim_messages(
     if start <= 0 or start >= len(body):
         return messages  # nothing sensible to elide
 
-    marker = {
-        "role": "system",
-        "content": f"[context trimmed: {start} earlier messages elided]",
-    }
-    return [*head, marker, *body[start:]]
+    kept = [latest_user] if latest_user is not None and latest_user < start else []
+    kept.extend(range(start, len(body)))
+    result = list(head)
+    previous = 0
+    for index in kept:
+        if index > previous:
+            result.append({
+                "role": "system",
+                "content": f"[context trimmed: {index - previous} earlier messages elided]",
+            })
+        result.append(body[index])
+        previous = index + 1
+    return result

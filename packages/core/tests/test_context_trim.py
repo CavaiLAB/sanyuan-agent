@@ -1,8 +1,8 @@
 """Context-window trimming (018): bound the message list sent to the LLM.
 
-``trim_messages`` keeps the leading system messages and the first task turn,
-elides the middle behind a marker, and keeps the most recent messages within
-a token budget without orphaning tool results. The plan node applies it each
+``trim_messages`` keeps the leading system messages, first task, and latest user
+turn. It elides older logs and keeps recent messages within a token budget
+without orphaning tool results. The plan node applies it each
 turn with ``context_token_budget`` (a ``build_simple_agent`` / ``AgentSpec``
 knob), so unbounded conversations stop overflowing the model context.
 """
@@ -18,7 +18,7 @@ import litellm
 import pytest
 from langchain_core.messages import ToolMessage
 from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.memory.context import trim_messages
+from neuroagent.memory.context import _msg_tokens, trim_messages
 from neuroagent.models import LLMProvider, LLMProviderRegistry
 from neuroagent.tools.registry import ToolRegistry
 from pydantic import ValidationError
@@ -51,6 +51,7 @@ class TestTrimMessages:
         assert trimmed[1] == msgs[1]  # original task kept
         assert "context trimmed" in trimmed[2]["content"]
         assert trimmed[-1] == msgs[-1]  # newest messages kept verbatim
+        assert sum(message is msgs[-1] for message in trimmed) == 1
         # The kept tail fits the budget shape: far fewer than the original.
         assert len(trimmed) <= 4 + sum(
             1 for _ in range(len(msgs))
@@ -124,10 +125,49 @@ class TestTrimMessages:
 
         assert len(trimmed) < len(msgs)  # trimming did NOT bail out
         # The kept tail starts at the parent assistant turn — pair intact.
-        after_marker = trimmed[3]
+        after_marker = trimmed[-5]
         assert isinstance(after_marker, dict)
         assert [tc["id"] for tc in after_marker.get("tool_calls", [])] == tc_ids
         assert all(isinstance(m, ToolMessage) for m in trimmed[-4:])
+
+    @pytest.mark.parametrize("multimodal", [False, True])
+    def test_current_user_turn_survives_without_pinning_its_tool_history(
+        self, multimodal: bool
+    ) -> None:
+        current: dict[str, Any] = _msg("user", "Analyze the new task")
+        if multimodal:
+            current["content"] = [
+                {"type": "text", "text": "Analyze the new task"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "x" * 100_000}},
+            ]
+        msgs: list[Any] = [
+            _msg("system", "Keep the system guidance"),
+            _msg("user", "the original task"),
+            _msg("assistant", "The original answer"),
+            current,
+        ]
+        for i in range(30):
+            msgs.extend([
+                {
+                    "role": "assistant", "content": "Read more evidence",
+                    "tool_calls": [{"id": f"call-{i}"}],
+                },
+                ToolMessage(content="details " * 200, tool_call_id=f"call-{i}", name="read"),
+            ])
+
+        trimmed = trim_messages(msgs, token_budget=2000, keep_recent=2)
+
+        assert trimmed[:2] == msgs[:2]
+        assert sum(message is current for message in trimmed) == 1
+        assert len(trimmed) < 15  # current turn must not pin all subsequent tool logs
+        assert sum(_msg_tokens(message) for message in trimmed) <= 2100
+        assert trimmed[-2:] == msgs[-2:]
+        kept_calls = {
+            call["id"]
+            for message in trimmed if isinstance(message, dict)
+            for call in message.get("tool_calls", [])
+        }
+        assert {message.tool_call_id for message in trimmed if isinstance(message, ToolMessage)} == kept_calls
 
     def test_inlined_image_not_counted_as_base64_text(self) -> None:
         """A multimodal image turn must not be estimated at ~len(base64)/4 tokens.

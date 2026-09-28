@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 import pytest_asyncio
 from neuroagent.memory.episodic import EpisodicMemory
 from sqlalchemy import JSON, Column, DateTime, Index, MetaData, String, Table, text
@@ -226,6 +229,67 @@ class TestEpisodicMemory:
 class TestAgentIntegration:
     """E2E-style integration for agent-level episodic hooks."""
 
+    @pytest.mark.parametrize("ending", ["direct", "after-tool", "iteration-cap"])
+    async def test_graph_saves_current_question_with_its_final_answer(
+        self, monkeypatch: pytest.MonkeyPatch, ending: str
+    ) -> None:
+        from neuroagent.agents.simple import build_simple_agent
+        from neuroagent.models import LLMProvider
+
+        def echo(text: str) -> str:
+            """Return local test evidence."""
+            return text
+
+        def response(content: str, *, tool: bool = False) -> SimpleNamespace:
+            tool_calls = None
+            if tool:
+                tool_calls = [SimpleNamespace(
+                    id="local-echo", function=SimpleNamespace(
+                        name="echo", arguments='{"text":"Current evidence"}'
+                    ),
+                )]
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(
+                    content=content, tool_calls=tool_calls
+                ))],
+                usage=None,
+            )
+
+        replies = [response("A2: the final answer to the current task")]
+        if ending != "direct":
+            replies.insert(0, response("I will inspect current evidence.", tool=True))
+        llm = AsyncMock(side_effect=replies)
+        monkeypatch.setattr("neuroagent.agents.simple._call_llm", llm)
+        monkeypatch.setenv("NEUROAGENT_MEMORY_BACKEND", "none")
+        memory = Mock(add_episode=AsyncMock())
+        agent = build_simple_agent(
+            LLMProvider(name="test", provider_kind="openai", default_model="test-model"),
+            [echo],
+            episodic_memory=memory,
+            tenant_id="tenant-a",
+            conversation_id="conversation-a",
+        )
+
+        result = await agent.ainvoke({
+            "messages": [
+                {"role": "user", "content": "Q1: the old task"},
+                {"role": "assistant", "content": "A1: the old answer"},
+                {"role": "user", "content": "Q2: the current task"},
+            ],
+            "iteration": 0,
+            "max_iter": 1 if ending == "iteration-cap" else 5,
+        })
+
+        memory.add_episode.assert_awaited_once()
+        saved = memory.add_episode.await_args.kwargs
+        assert saved["user_query"] == "Q2: the current task"
+        assert saved["final_answer"] == result["messages"][-1]["content"]
+        assert saved["final_answer"] == "A2: the final answer to the current task"
+        assert saved["tenant_id"] == "tenant-a"
+        assert saved["conversation_id"] == "conversation-a"
+        if ending == "iteration-cap":
+            assert llm.await_args.args[2] == []  # the tool-free finalize node ran
+
     async def test_maybe_save_episode_no_op_without_memory(self) -> None:
         from neuroagent.agents.simple import _maybe_save_episode
 
@@ -237,6 +301,7 @@ class TestAgentIntegration:
             "tenant-1",
             "conv-1",
             0.0,
+            final_answer="",
         )
 
     async def test_maybe_save_episode_no_op_without_ids(self) -> None:
@@ -255,6 +320,7 @@ class TestAgentIntegration:
             "",
             "",
             0.0,
+            final_answer="",
         )
 
     async def test_extract_user_query(self) -> None:
