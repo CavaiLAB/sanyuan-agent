@@ -1,0 +1,30 @@
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   Copyright 2026 NeuroAgent Contributors
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+   完整许可证文本见：https://www.apache.org/licenses/LICENSE-2.0.txt
+
+=================================================================
+附加声明
+=================================================================
+
+本 Harness 层（packages/harness/）在 Apache License 2.0 下开源。
+仓库根目录的 app/ 等目录不属于本许可证范围，
+是独立的内部项目，许可证策略另行约定。
+
+本项目的 Sandbox 抽象、Skills SKILL.md 三级加载、Tool-Call Recovery、
+Provider Registry 等设计借鉴自 DeerFlow 2.0（bytedance/deer-flow，MIT License）。

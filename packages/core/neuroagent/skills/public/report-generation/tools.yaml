@@ -1,0 +1,4 @@
+tools:
+  - web_fetch
+max_sections: 10
+include_diagrams: false
