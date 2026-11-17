@@ -1,6 +1,6 @@
-# neuroagent (Harness)
+# sanyuan-agent (Harness)
 
-NeuroAgent Agent 引擎核心，开源部分。
+SanYuanAgent Agent 引擎核心，开源部分。
 
 **Apache License 2.0**
 
@@ -14,10 +14,10 @@ NeuroAgent Agent 引擎核心，开源部分。
 
 ## 独立可运行性
 
-本包**不依赖任何 NeuroAgent 商业版组件**。可以独立：
+本包**不依赖任何 SanYuanAgent 商业版组件**。可以独立：
 
 ```python
-from neuroagent import AgentBuilder, load_config
+from sanyuan_agent import AgentBuilder, load_config
 
 config = load_config("my-config.yaml")
 agent = AgentBuilder(config).build()
@@ -29,13 +29,13 @@ print(result.final_response)
 或 CLI：
 
 ```bash
-uv add neuroagent
-neuroagent --config my-config.yaml --task "..."
+uv add sanyuan-agent
+sanyuan-agent --config my-config.yaml --task "..."
 ```
 
 ### 桌面本地执行的 fail-closed 沙箱原语
 
-`neuroagent.local_desktop.CodexSandbox` 提供桌面 harness 使用的本地命令启动原语。
+`sanyuan_agent.local_desktop.CodexSandbox` 提供桌面 harness 使用的本地命令启动原语。
 它只接受构建清单中 SHA-256 固定的**原生** Codex 与 probe 可执行文件（拒绝
 `#!/usr/bin/env node` 等脚本 launcher），并绑定一个明确授权、非系统临时目录、权限为
 `0700` 的 Run control root；workspace 必须是它的 `0700` 直接子目录。构造时会从同一个
@@ -53,7 +53,7 @@ Windows 要等 Job Object launcher 落地后再开放，避免假隔离。stdout
 拖垮本地 sidecar。
 
 ```python
-from neuroagent.local_desktop import CodexSandbox
+from sanyuan_agent.local_desktop import CodexSandbox
 
 sandbox = CodexSandbox(
     codex_bin="/path/to/bundled/native-codex",
@@ -87,7 +87,7 @@ profile 也暂不支持，避免未经验证的
 跨文件系统目录和超过 4 MiB 的文本。`upload_file` 仍默认拒绝任意宿主路径，必须等
 Workspace v3 用不可变 source grant 物化后再接入。
 
-`neuroagent desktop-run` 提供 Electron sidecar 需要的单次进程协议：stdin 只接受一行、
+`sanyuan-agent desktop-run` 提供 Electron sidecar 需要的单次进程协议：stdin 只接受一行、
 最多 256 KiB 的 Edge 已授权请求，stdout 只输出 harness 共用 SSE。执行路由由 Edge 与
 专用命令入口决定；为兼容 legacy device 与 project-fixed 路由，runner 不采信也不要求
 payload 的 `mode` / `target` / `target_device_id`。模型、API endpoint
@@ -108,7 +108,7 @@ macOS 原生 probe 与 harness 放入 `extraResources`，但此入口仍不代�
 原子落盘全部位于本包，不依赖 FastAPI、Redis 或 `neuroagent_app`：
 
 ```python
-from neuroagent.memory import (
+from sanyuan_agent.memory import (
     MemoryContext,
     MemoryLevel,
     materialize_memory_markdown,
@@ -135,7 +135,7 @@ PG 语义记忆的 `LongtermMemoryStore` 与 `build_memory_tools` 同样接受�
 ## 工具注册：Provider path 与旧 builder path
 
 工具注册有两条**等价且兼容**的路径。旧的 `build_*_tool` builder 不变，照常工作；
-新增的 Provider path（`neuroagent.tools.provider`）在 `ToolRegistry` 之上统一了
+新增的 Provider path（`sanyuan_agent.tools.provider`）在 `ToolRegistry` 之上统一了
 声明形态——把 name / callable / schema 收敛成一个 `ToolSpec`，再附带不参与执行的
 元数据（category / capabilities / side_effect / required_secrets / artifact_output /
 policy_hint）。元数据仅供后续构建 `ToolPolicy`、前端展示、审计标签使用，**不**绕过
@@ -143,13 +143,13 @@ executor / `ToolPolicy` / `RiskGate`。
 
 ```python
 # 旧路径（仍然可用）：builder 直接注册进 registry
-from neuroagent.tools import ToolRegistry, build_web_search_tool
+from sanyuan_agent.tools import ToolRegistry, build_web_search_tool
 
 registry = ToolRegistry()
 build_web_search_tool(registry)               # 注册 "web_search"
 
 # 新路径：把任意现有 callable 适配成 spec，再批量注册（schema 与旧路径一致）
-from neuroagent.tools import (
+from sanyuan_agent.tools import (
     ToolRegistry,
     build_web_search_tool,
     register_tool_specs,
@@ -185,7 +185,7 @@ provider path 与 `build_simple_agent(tools=[callable])` 旧路径结果等价�
 - **不 mutate** 传入的 `ToolRegistry`——候选只在加载期解析，绝不注册进传入的 registry。
 
 ```python
-from neuroagent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
 
 spec = AgentSpec(
     name="researcher",
@@ -223,7 +223,7 @@ loaded = load_agent_from_spec(
 env-var 名，本模块**不读取**。
 
 ```python
-from neuroagent.tools import MultimodalToolProvider, ToolRegistry, register_provider
+from sanyuan_agent.tools import MultimodalToolProvider, ToolRegistry, register_provider
 
 registry = ToolRegistry()
 register_provider(registry, MultimodalToolProvider(my_multimodal_client))
@@ -351,8 +351,8 @@ PR16 在 app 层加 `HttpxArkTransport`（实现 `ArkTransport`），是**唯一
 `link_reader`：
 
 ```python
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.tools import LinkReaderToolProvider
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.tools import LinkReaderToolProvider
 
 spec = AgentSpec(
     name="reader",
@@ -391,8 +391,8 @@ provider path 声明式选择 —— 在 `AgentSpec.providers` 引用、用 `Age
 启用 `execute_skills`：
 
 ```python
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.tools import ExecuteSkillsToolProvider
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.tools import ExecuteSkillsToolProvider
 
 spec = AgentSpec(
     name="skiller",
@@ -439,8 +439,8 @@ download 默认 `confirm`）：
 `tool_sets` 启用单个 `browser_*` 名字：
 
 ```python
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.tools import BrowserToolProvider
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.tools import BrowserToolProvider
 
 spec = AgentSpec(
     name="browser-agent",
@@ -473,8 +473,8 @@ loaded = load_agent_from_spec(
 client 一起来）。与 PR1 一致，元数据仅作描述，执行仍由 `ToolPolicy` / `RiskGate` 把关。
 
 ```python
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.tools import FakeMobileUseClient, MobileUseToolProvider
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.tools import FakeMobileUseClient, MobileUseToolProvider
 
 spec = AgentSpec(
     name="mobile-agent",
@@ -497,12 +497,12 @@ loaded = load_agent_from_spec(
 把这两个工具按 spec 产出，附 `category="web"`、`side_effect="read"` 元数据。它**不改任何行为、
 不改任何 schema**（callable 与反射 schema 直接取自两个 builder，schema verbatim 透传），也
 **不引入任何新的 secret / env 行为** —— web_search 的可选 Brave key
-（`NEUROAGENT_WEB_SEARCH_API_KEY`）仍由 builder 按原样读取，本 provider 自身不读 env、不声明
+（`SANYUAN_AGENT_WEB_SEARCH_API_KEY`）仍由 builder 按原样读取，本 provider 自身不读 env、不声明
 `required_secrets`。与 PR1 一致，元数据仅作描述，执行仍由 `ToolPolicy` / `RiskGate` 把关。
 
 ```python
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.tools import WebToolProvider
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.tools import WebToolProvider
 
 spec = AgentSpec(
     name="web-agent",
@@ -543,8 +543,8 @@ schema**（callable 与反射 schema 直接取自 builder，schema verbatim 透�
 | `bash` | sandbox | external | confirm |
 
 ```python
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.tools import ArtifactWriteToolProvider, BashToolProvider, FileOpsToolProvider
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.tools import ArtifactWriteToolProvider, BashToolProvider, FileOpsToolProvider
 
 spec = AgentSpec(
     name="ops",
@@ -587,8 +587,8 @@ loaded = load_agent_from_spec(
 也不引入并行执行链。
 
 ```python
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.tools import SandboxToolProvider
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.tools import SandboxToolProvider
 
 spec = AgentSpec(
     name="coder",
@@ -607,7 +607,7 @@ loaded = load_agent_from_spec(
 
 ## 开发
 
-本包作为 `neuroagent-python` 仓库的 uv workspace 成员存在。开发细节见父仓 README。
+本包作为 `sanyuan-agent` 仓库的 uv workspace 成员存在。开发细节见父仓 README。
 
 ## 设计致谢
 

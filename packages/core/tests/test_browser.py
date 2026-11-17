@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-from neuroagent.artifacts.client import ArtifactRef
-from neuroagent.tools.browser.actions import _annotate_block, build_browser_tools
-from neuroagent.tools.browser.client import CDPClient
-from neuroagent.tools.browser.session import BrowserSession, _session_cache
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.artifacts.client import ArtifactRef
+from sanyuan_agent.tools.browser.actions import _annotate_block, build_browser_tools
+from sanyuan_agent.tools.browser.client import CDPClient
+from sanyuan_agent.tools.browser.session import BrowserSession, _session_cache
+from sanyuan_agent.tools.registry import ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Fakes

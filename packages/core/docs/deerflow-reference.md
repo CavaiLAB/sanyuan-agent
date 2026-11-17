@@ -1,8 +1,8 @@
 # DeerFlow 2.0 代码借鉴指引
 
-> **立场**：借鉴不是照抄。DeerFlow 的架构抽象（Sandbox 三模式、SKILL.md、tool-call recovery、provider registry）是我们的蓝本；它们的具体实现是**参考点而非起点**——在 NeuroAgent 落地时按本仓代码规范（Pydantic schema、`SandboxClient` 封装、structlog 脱敏、harness/app 边界、mypy strict）重写。
+> **立场**：借鉴不是照抄。DeerFlow 的架构抽象（Sandbox 三模式、SKILL.md、tool-call recovery、provider registry）是我们的蓝本；它们的具体实现是**参考点而非起点**——在 SanYuanAgent 落地时按本仓代码规范（Pydantic schema、`SandboxClient` 封装、structlog 脱敏、harness/app 边界、mypy strict）重写。
 >
-> **License**：DeerFlow 2.0 MIT；NeuroAgent `packages/harness/` Apache 2.0。两者兼容。**入库时 `NOTICE` 必须标注借鉴来源 + commit SHA**（见末尾）。
+> **License**：DeerFlow 2.0 MIT；SanYuanAgent `packages/core/` Apache 2.0。两者兼容。**入库时 `NOTICE` 必须标注借鉴来源 + commit SHA**（见末尾）。
 
 
 > **退役注记（2026-07-14）**：下文提到的 `sandbox_supervisor/` 实现已随「沙箱统一 CubeSandbox」决策退役删除；本文档保留为当年借鉴映射的历史参考，路径不再存在。
@@ -24,12 +24,12 @@
 
 ## 0. DeerFlow 仓库拓扑
 
-关键镜像：DeerFlow 本身就是 `harness + app` 两层分层（和 NeuroAgent 同构）。
+关键镜像：DeerFlow 本身就是 `harness + app` 两层分层（和 SanYuanAgent 同构）。
 
 ```
 github.com/bytedance/deer-flow  (default branch: main, License: MIT)
 └── backend/
-    ├── packages/harness/deerflow/       ← 对应我们 packages/harness/neuroagent/
+    ├── packages/harness/deerflow/       ← 对应我们 packages/core/sanyuan_agent/
     │   ├── client.py                    ← CLI / SDK 入口
     │   ├── agents/
     │   │   ├── factory.py
@@ -66,27 +66,27 @@ github.com/bytedance/deer-flow  (default branch: main, License: MIT)
 
 ### 1.1 目标
 
-NeuroAgent 要的三模式（Local / Docker / K8s）+ Supervisor 抽象 + 审计 hook + Playwright CDP。DeerFlow 目前开源的是 Local 模式 + Provider 抽象，其他模式由我们自己在 `sandbox_supervisor/` 里实现。
+SanYuanAgent 要的三模式（Local / Docker / K8s）+ Supervisor 抽象 + 审计 hook + Playwright CDP。DeerFlow 目前开源的是 Local 模式 + Provider 抽象，其他模式由我们自己在 `sandbox_supervisor/` 里实现。
 
 ### 1.2 DeerFlow 文件清单（全部位于 `backend/packages/harness/deerflow/sandbox/`）
 
-| DeerFlow 文件 | 作用 | NeuroAgent 目标映射 | 借鉴深度 |
+| DeerFlow 文件 | 作用 | SanYuanAgent 目标映射 | 借鉴深度 |
 |---|---|---|---|
-| `sandbox.py` | Sandbox 核心接口 / data class | `packages/harness/neuroagent/sandbox/client.py`（SandboxClient 接口） | **结构 + 命名** |
-| `sandbox_provider.py` | Provider 抽象基类 | `packages/harness/neuroagent/sandbox/providers/base.py` | **结构** |
+| `sandbox.py` | Sandbox 核心接口 / data class | `packages/core/sanyuan_agent/sandbox/client.py`（SandboxClient 接口） | **结构 + 命名** |
+| `sandbox_provider.py` | Provider 抽象基类 | `packages/core/sanyuan_agent/sandbox/providers/base.py` | **结构** |
 | `local/local_sandbox.py` | Local 模式实现（~16KB，进程式 sandbox） | `sandbox_supervisor/providers/local_provider.py` | **算法思路** |
 | `local/local_sandbox_provider.py` | Local Provider 注册 | 同上 | **结构** |
 | `local/list_dir.py` | 文件系统操作辅助 | 我们走 `SandboxClient.read_file/list_dir` 接口，具体实现在 Supervisor 内 | **思路** |
 | `middleware.py` | Agent 图中把 Sandbox 注入 state 的 middleware | 我们用 `ToolContext.sandbox` 依赖注入模式，不走 LangGraph middleware 层 | **参考** |
 | `security.py` | Sandbox 内命令白名单 / 资源限制校验 | `sandbox_supervisor/security/limits.py`（我们按 Sandbox Spec §4 重写更严格版本） | **参考** |
-| `exceptions.py` | Sandbox 领域异常 | `packages/harness/neuroagent/sandbox/exceptions.py` | **直接改名引入** |
+| `exceptions.py` | Sandbox 领域异常 | `packages/core/sanyuan_agent/sandbox/exceptions.py` | **直接改名引入** |
 | `file_operation_lock.py` | workspace 文件并发锁 | `sandbox_supervisor/workspace/lock.py`（Supervisor 内） | **算法** |
-| `tools.py` | Sandbox 暴露给 Agent 的 tool adapters（~54KB 最大单文件） | `packages/harness/neuroagent/tools/builtins/{bash,file_*,computer_use}.py` 拆解 | **拆解 + 改写** |
-| `search.py` | Sandbox 内 `web_search` 工具 | `packages/harness/neuroagent/tools/builtins/web_search.py` | **参考 API 形状** |
+| `tools.py` | Sandbox 暴露给 Agent 的 tool adapters（~54KB 最大单文件） | `packages/core/sanyuan_agent/tools/builtins/{bash,file_*,computer_use}.py` 拆解 | **拆解 + 改写** |
+| `search.py` | Sandbox 内 `web_search` 工具 | `packages/core/sanyuan_agent/tools/builtins/web_search.py` | **参考 API 形状** |
 
 ### 1.3 具体借鉴建议
 
-**1) Provider 接口**：`sandbox_provider.py` 的抽象基类定义（`provision / destroy / exec / browser` 等方法签名）是**最值得直接借鉴**的部分。我们的 `packages/harness/neuroagent/sandbox/providers/base.py` 按相同契约写，但：
+**1) Provider 接口**：`sandbox_provider.py` 的抽象基类定义（`provision / destroy / exec / browser` 等方法签名）是**最值得直接借鉴**的部分。我们的 `packages/core/sanyuan_agent/sandbox/providers/base.py` 按相同契约写，但：
 
 - 所有方法参数 / 返回用 **Pydantic BaseModel**（DeerFlow 用 dataclass，我们统一 Pydantic）
 - `async` 全覆盖（DeerFlow 部分是同步接口）
@@ -98,7 +98,7 @@ NeuroAgent 要的三模式（Local / Docker / K8s）+ Supervisor 抽象 + 审计
 
 **3) `tools.py` 切碎**：DeerFlow 54KB 的单文件是所有 Sandbox tool 的合集。我们按"一个 Tool 一个文件"拆（本仓 `tool-authoring` skill 的强约定）：
 ```
-packages/harness/neuroagent/tools/builtins/
+packages/core/sanyuan_agent/tools/builtins/
 ├── bash.py
 ├── file_read.py
 ├── file_write.py
@@ -109,7 +109,7 @@ packages/harness/neuroagent/tools/builtins/
 └── __init__.py    ← TOOL_REGISTRY
 ```
 
-**4) 不直接 import docker**：DeerFlow 的 local provider 就是进程级，没有 docker 依赖。我们的 `docker_provider.py` 和 `k8s_provider.py` 是 NeuroAgent 特有 —— **只能由 `sandbox_supervisor/` 内部引入 docker SDK**（本仓 `sandbox-client` skill 铁律 4）。
+**4) 不直接 import docker**：DeerFlow 的 local provider 就是进程级，没有 docker 依赖。我们的 `docker_provider.py` 和 `k8s_provider.py` 是 SanYuanAgent 特有 —— **只能由 `sandbox_supervisor/` 内部引入 docker SDK**（本仓 `sandbox-client` skill 铁律 4）。
 
 ### 1.4 具体链接
 
@@ -125,33 +125,33 @@ packages/harness/neuroagent/tools/builtins/
 
 ### 2.1 目标
 
-NeuroAgent 的 SKILL.md 三级渐进加载 + Ed25519 签名 + 租户可信 key 列表。DeerFlow 已经有完整的加载 / 解析 / 校验链。
+SanYuanAgent 的 SKILL.md 三级渐进加载 + Ed25519 签名 + 租户可信 key 列表。DeerFlow 已经有完整的加载 / 解析 / 校验链。
 
 ### 2.2 DeerFlow 文件清单（`backend/packages/harness/deerflow/skills/`）
 
-| DeerFlow 文件 | 作用 | NeuroAgent 映射 | 借鉴深度 |
+| DeerFlow 文件 | 作用 | SanYuanAgent 映射 | 借鉴深度 |
 |---|---|---|---|
-| `types.py` | `Skill` / `SkillMetadata` / `SkillBundle` data class | `packages/harness/neuroagent/skills/types.py` | **直接改写为 Pydantic** |
-| `parser.py` | SKILL.md frontmatter + markdown 解析 | `packages/harness/neuroagent/skills/parser.py` | **结构 + 算法** |
-| `loader.py` | 按路径 / 目录加载 Skill，返回内存对象 | `packages/harness/neuroagent/skills/loader.py` | **结构** |
-| `manager.py` | Skill registry / 查询 / 激活 | `packages/harness/neuroagent/skills/registry.py` | **结构** |
+| `types.py` | `Skill` / `SkillMetadata` / `SkillBundle` data class | `packages/core/sanyuan_agent/skills/types.py` | **直接改写为 Pydantic** |
+| `parser.py` | SKILL.md frontmatter + markdown 解析 | `packages/core/sanyuan_agent/skills/parser.py` | **结构 + 算法** |
+| `loader.py` | 按路径 / 目录加载 Skill，返回内存对象 | `packages/core/sanyuan_agent/skills/loader.py` | **结构** |
+| `manager.py` | Skill registry / 查询 / 激活 | `packages/core/sanyuan_agent/skills/registry.py` | **结构** |
 | `installer.py` | 从远程 URL / tarball 安装 Skill | Phase 2 Skills 市场时再引入 | **延后借鉴** |
-| `validation.py` | SKILL.md 字段校验（required fields、版本号等） | `packages/harness/neuroagent/skills/validator.py` | **规则表** |
-| `security_scanner.py` | Skill 内容安全扫描（危险模式） | `packages/harness/neuroagent/skills/scanner.py` + 加上 **Ed25519 签名验证**（DeerFlow 没有） | **扩展** |
+| `validation.py` | SKILL.md 字段校验（required fields、版本号等） | `packages/core/sanyuan_agent/skills/validator.py` | **规则表** |
+| `security_scanner.py` | Skill 内容安全扫描（危险模式） | `packages/core/sanyuan_agent/skills/scanner.py` + 加上 **Ed25519 签名验证**（DeerFlow 没有） | **扩展** |
 
 ### 2.3 关键差异：签名
 
-DeerFlow 的 `security_scanner.py` 做**静态内容扫描**（扫禁词、可疑命令）。NeuroAgent 需要**额外一层 Ed25519 签名**（PRD 四层数据承诺的一部分）——这是我们独有的，需要自己加：
+DeerFlow 的 `security_scanner.py` 做**静态内容扫描**（扫禁词、可疑命令）。SanYuanAgent 需要**额外一层 Ed25519 签名**（PRD 四层数据承诺的一部分）——这是我们独有的，需要自己加：
 
 ```
-packages/harness/neuroagent/skills/
+packages/core/sanyuan_agent/skills/
 ├── types.py              ← 借鉴 DeerFlow
 ├── parser.py             ← 借鉴 DeerFlow
 ├── loader.py             ← 借鉴 DeerFlow，加 verify_signature 强制调用
 ├── registry.py           ← 借鉴 DeerFlow 的 manager.py
 ├── validator.py          ← 借鉴 DeerFlow 的 validation.py
 ├── scanner.py            ← 借鉴 DeerFlow 的 security_scanner.py
-└── signature.py          ← ★ NeuroAgent 独有，Ed25519 签名 + 租户 trust store
+└── signature.py          ← ★ SanYuanAgent 独有，Ed25519 签名 + 租户 trust store
 ```
 
 **`loader.py` 必须在 load 路径上调用 `verify_signature`**——本仓 `skill-authoring` skill 铁律 (`verify_skill_signature` 必须在所有 loader 路径调用，`if DEV_MODE: skip` 不允许)。
@@ -200,10 +200,10 @@ DeerFlow 把"Tool 相关错误处理"拆成几个 middleware：
 
 以及 `reflection/resolvers.py`（single file，4KB）—— "当 LLM 返回 JSON 格式错误时，resolver 尝试修复"。这是**另一种"recovery"语义**（schema recovery），也值得参照。
 
-### 3.4 NeuroAgent 落点
+### 3.4 SanYuanAgent 落点
 
 ```
-packages/harness/neuroagent/recovery/
+packages/core/sanyuan_agent/recovery/
 ├── __init__.py
 ├── dangling_tool_call.py       ← 核心：悬挂 tool_call 修复
 ├── tool_error.py               ← Tool 异常 graceful 化
@@ -233,7 +233,7 @@ packages/harness/neuroagent/recovery/
 
 ### 4.1 目标
 
-NeuroAgent Phase 1 需要 DeepSeek / Qwen / Claude 三个 provider，用 LiteLLM 统一。DeerFlow 提供了 factory + 各家 provider 的实现样本。
+SanYuanAgent Phase 1 需要 DeepSeek / Qwen / Claude 三个 provider，用 LiteLLM 统一。DeerFlow 提供了 factory + 各家 provider 的实现样本。
 
 ### 4.2 DeerFlow 文件清单（`backend/packages/harness/deerflow/models/`）
 
@@ -250,16 +250,16 @@ NeuroAgent Phase 1 需要 DeepSeek / Qwen / Claude 三个 provider，用 LiteLLM
 
 ### 4.3 LiteLLM vs 自写 provider
 
-NeuroAgent Phase 1 决定用 LiteLLM 做统一抽象。这意味着：
+SanYuanAgent Phase 1 决定用 LiteLLM 做统一抽象。这意味着：
 
 - **Factory 模式借鉴**：`factory.py` 的 `get_provider(name, config)` 模式可以保留，但内部改为 `return LiteLLMWrapper(model=name, ...)`
 - **`patched_*` 借鉴**：LiteLLM 本身有 bug 时，`patched_deepseek.py` 这类文件是"监控 provider quirks"的最佳参照 —— 未来我们发现 LiteLLM 对某家不兼容，可以写 `patches/deepseek.py` 类似 monkey patch
 - **不借鉴**：`openai_codex_provider.py` 和 `vllm_provider.py` 的直连逻辑（我们全走 LiteLLM）
 
-### 4.4 NeuroAgent 落点
+### 4.4 SanYuanAgent 落点
 
 ```
-packages/harness/neuroagent/models/
+packages/core/sanyuan_agent/models/
 ├── __init__.py
 ├── factory.py               ← 借鉴 DeerFlow，内部走 LiteLLM
 ├── registry.py              ← Provider 元信息注册（cost / context_window / capabilities）
@@ -282,7 +282,7 @@ packages/harness/neuroagent/models/
 
 DeerFlow 的 `agents/middlewares/` 共 15 个 middleware，除了 recovery 相关的几个，其余按需借鉴：
 
-| Middleware | 作用 | NeuroAgent 是否借 |
+| Middleware | 作用 | SanYuanAgent 是否借 |
 |---|---|---|
 | `clarification_middleware.py` | Agent 主动发问澄清 | ⚠ Phase 2 再看 |
 | `memory_middleware.py` | 自动把 memory 注入 prompt | ✅ Phase 1 借鉴，结合我们四层记忆 |
@@ -306,7 +306,7 @@ Base URL：`https://github.com/bytedance/deer-flow/blob/main/backend/packages/ha
 
 DeerFlow `subagents/executor.py`（~25KB）+ `subagents/registry.py`——对应我们 **Phase 2 Orchestrator-Worker 架构**。
 
-| 文件 | 作用 | NeuroAgent |
+| 文件 | 作用 | SanYuanAgent |
 |---|---|---|
 | `subagents/executor.py` | Subagent 执行器 | Phase 2 核心借鉴 |
 | `subagents/registry.py` | Subagent 类型注册 | Phase 2 |
@@ -335,7 +335,7 @@ DeerFlow `subagents/executor.py`（~25KB）+ `subagents/registry.py`——对应
 
 每次从 DeerFlow 拷 / 改 / 参考一个文件，**必须在 PR 里过这个清单**：
 
-- [ ] 命名：文件路径从 `deerflow/` 改到 `neuroagent/`；类名里 `DeerFlow*` 改 `NeuroAgent*`
+- [ ] 命名：文件路径从 `deerflow/` 改到 `sanyuan_agent/`；类名里 `DeerFlow*` 改 `SanYuanAgent*`
 - [ ] 数据模型：dataclass / TypedDict 改为 **Pydantic BaseModel**
 - [ ] 异步：同步方法改 `async def`；同步 IO 替换为 asyncio 对应的
 - [ ] 类型标注：所有公开函数 type hints 完整，`mypy --strict` 零错误
@@ -355,7 +355,7 @@ DeerFlow `subagents/executor.py`（~25KB）+ `subagents/registry.py`——对应
 ### 9.1 License 兼容性
 
 - DeerFlow：**MIT**
-- NeuroAgent Harness：**Apache 2.0**
+- SanYuanAgent Harness：**Apache 2.0**
 
 MIT → Apache 2.0 **兼容**（MIT 是 Apache 2.0 的子集宽松度）。我们可以合法借鉴。但：
 
@@ -364,10 +364,10 @@ MIT → Apache 2.0 **兼容**（MIT 是 Apache 2.0 的子集宽松度）。我�
 
 ### 9.2 `NOTICE` 文件要求
 
-在 `packages/harness/neuroagent-python/NOTICE`（Apache 2.0 惯例）加入：
+在 `packages/core/NOTICE`（Apache 2.0 惯例）加入：
 
 ```
-NeuroAgent (Harness)
+SanYuanAgent (Harness)
 Copyright <year> <你的公司 / idadawn>
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -381,13 +381,13 @@ This product includes software developed by ByteDance and contributors:
   Licensed under the MIT License.
 
 Specifically, the following modules are derived or adapted from DeerFlow:
-  - packages/harness/neuroagent/sandbox/
+  - packages/core/sanyuan_agent/sandbox/
     <- backend/packages/harness/deerflow/sandbox/
-  - packages/harness/neuroagent/skills/
+  - packages/core/sanyuan_agent/skills/
     <- backend/packages/harness/deerflow/skills/
-  - packages/harness/neuroagent/recovery/
+  - packages/core/sanyuan_agent/recovery/
     <- backend/packages/harness/deerflow/agents/middlewares/{dangling,tool_error,llm_error,loop_detection}*
-  - packages/harness/neuroagent/models/factory.py, credential_loader.py
+  - packages/core/sanyuan_agent/models/factory.py, credential_loader.py
     <- backend/packages/harness/deerflow/models/{factory,credential_loader}.py
 
 Last synced: <commit-sha-of-deer-flow-main-at-time-of-sync>
@@ -406,7 +406,7 @@ Last synced: <commit-sha-of-deer-flow-main-at-time-of-sync>
 #
 # Derived from ByteDance DeerFlow (MIT):
 #   https://github.com/bytedance/deer-flow/blob/<sha>/backend/packages/harness/deerflow/<path>
-# Adapted for NeuroAgent conventions: Pydantic BaseModel, async, tenant-scoped, structlog, mypy strict.
+# Adapted for SanYuanAgent conventions: Pydantic BaseModel, async, tenant-scoped, structlog, mypy strict.
 ```
 
 **浅借鉴**（只参照接口 / 命名）的文件**不需要**加 header，标准 Apache 2.0 header 即可。

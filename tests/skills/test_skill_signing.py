@@ -3,12 +3,12 @@
 from pathlib import Path
 
 import yaml
-from neuroagent.skills.registry import (
+from sanyuan_agent.skills.registry import (
     SkillRegistry,
     load_custom_skill,
     parse_skill,
 )
-from neuroagent.skills.signing import (
+from sanyuan_agent.skills.signing import (
     SkillVerifier,
     canonical_payload,
     generate_keypair,
@@ -110,7 +110,7 @@ class TestBuiltinUnaffected:
     def test_builtin_skills_load_without_signature(self) -> None:
         builtin = (
             Path(__file__).resolve().parents[2]
-            / "packages/core/neuroagent/skills/public/web-research/SKILL.md"
+            / "packages/core/sanyuan_agent/skills/public/web-research/SKILL.md"
         )
         skill = parse_skill(builtin)
         # Built-in skills are trusted by provenance: active, no signature needed.

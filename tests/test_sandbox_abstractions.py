@@ -7,7 +7,7 @@ when called on a concrete subclass that does not override it.
 from datetime import datetime
 
 import pytest
-from neuroagent.sandbox import ISandboxProvider, SandboxResult, SandboxSession
+from sanyuan_agent.sandbox import ISandboxProvider, SandboxResult, SandboxSession
 
 
 class _MinimalProvider(ISandboxProvider):

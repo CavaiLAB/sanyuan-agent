@@ -1,0 +1,19 @@
+# 改名之后仍保留旧名的地方。
+# rename.py 改名时遮住这些写法、原样保留；check_residue.py 要求仓库里剩下的每一处旧名都落在这里，
+# 登记了却一处都匹配不到的条目也算失败。格式见 exception_list.py 的说明。
+# 路径	写法	类别	原因	由谁定
+*	neuroagent_(app|media)\b	宿主侧包名	原仓库服务层、媒体适配层的包名。边界检查靠它认出宿主侧的包，说明文字里也要指名；改名后的对应名 sanyuan_agent_app、sanyuan_agent_media 已一并加进边界检查（暂定）	产品负责人，迁服务层、媒体适配层时定
+packages/core/sanyuan_agent/*	"neuroagent_[a-z_]+_total"	遥测标识	指标名。导出到监控系统后，已有的看板、告警和查询按名字取数，改了会断；meter 与 tracer 名是模块路径，已跟着导入名改了	产品负责人
+packages/core/sanyuan_agent/mcp/client.py	client_name: str = "neuroagent"	对外协议标识	MCP 握手时报给对端服务器的客户端名，和 HTTP 头同类	产品负责人
+packages/core/tests/test_mcp_client.py	\["name"\] == "neuroagent"	对外协议标识	断言上面那个客户端名	产品负责人
+packages/core/sanyuan_agent/tools/sandbox_tool.py	"neuroagent-default"	外部资源名	沙箱服务上登记的模板名，改了会找不到模板	产品负责人，随部署一起定
+packages/core/tests/test_local_desktop_codex_sandbox.py	/Applications/iClaw\.app/Contents/Resources/neuroagent	产品与其他仓库的名字	原产品桌面端安装包里的路径，由那边的打包流水线决定	产品负责人
+packages/core/README.md	neuroagent-sidecar	产品与其他仓库的名字	原产品桌面端打包产物的文件名（示例路径），由那边的打包流水线决定	产品负责人
+packages/core/NOTICE	Copyright 2026 NeuroAgent Contributors	版权人署名	版权行里的旧项目名，换不换由产品负责人定	产品负责人
+packages/core/pyproject.toml	\{ name = "NeuroAgent Contributors" \}	版权人署名	作者署名和版权行是同一个名字，一起定	产品负责人
+packages/core/expected-layout.txt	(?i)neuro[-_ ]?agent	历史遗留	早先调整目录时留下的布局清单，内容是原仓库的旧布局，没有代码读它；留不留由负责人定	产品负责人
+tools/migration/*	(?i)neuro[-_ ]?agent	迁移工具	导入、改名与残留检查的脚本本身要写旧名	不需要定
+README.md	原名 \*\*NeuroAgent\*\*	说明原名	说明这个仓库的代码从哪里来	不需要定
+AGENTS.md	现在的名字是 NeuroAgent	说明原名	说明这个仓库的代码从哪里来	不需要定
+docs/architecture.md	原名 NeuroAgent	说明原名	说明这个仓库的代码从哪里来	不需要定
+docs/migration.md	原名 NeuroAgent	说明原名	说明这个仓库的代码从哪里来	不需要定

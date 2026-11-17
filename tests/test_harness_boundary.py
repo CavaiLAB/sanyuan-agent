@@ -5,12 +5,12 @@ import sys
 
 
 class TestHarnessBoundary:
-    """Ensure neuroagent (harness) does not depend on neuroagent_app (app)."""
+    """Ensure sanyuan_agent (harness) does not depend on neuroagent_app (app)."""
 
     def test_harness_cannot_import_app(self):
-        """Importing from neuroagent must not bring in neuroagent_app."""
+        """Importing from sanyuan_agent must not bring in neuroagent_app."""
         code = (
-            "import neuroagent; "
+            "import sanyuan_agent; "
             "import sys; "
             "assert 'neuroagent_app' not in sys.modules, "
             "f'neuroagent_app leaked: {list(sys.modules.keys())}'; "
@@ -26,7 +26,7 @@ class TestHarnessBoundary:
 
     def test_app_can_import_harness(self):
         """App importing harness is expected and must succeed."""
-        code = "import neuroagent_app; import neuroagent"
+        code = "import neuroagent_app; import sanyuan_agent"
         result = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
@@ -38,7 +38,7 @@ class TestHarnessBoundary:
 
     def test_harness_direct_import_app_fails(self):
         """Direct import of neuroagent_app from a clean process should work
-        (this verifies the package exists), but importing neuroagent must not
+        (this verifies the package exists), but importing sanyuan_agent must not
         trigger it."""
         code = "import neuroagent_app"
         result = subprocess.run(

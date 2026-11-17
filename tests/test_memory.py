@@ -4,11 +4,11 @@ import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from neuroagent.agents import build_simple_agent
-from neuroagent.memory.abc import InMemoryStore
-from neuroagent.memory.sensory import SensoryEvent, SensoryMemory
-from neuroagent.memory.working import WorkingMemory
-from neuroagent.models import LLMProvider
+from sanyuan_agent.agents import build_simple_agent
+from sanyuan_agent.memory.abc import InMemoryStore
+from sanyuan_agent.memory.sensory import SensoryEvent, SensoryMemory
+from sanyuan_agent.memory.working import WorkingMemory
+from sanyuan_agent.models import LLMProvider
 
 # -- InMemoryStore --
 
@@ -206,7 +206,7 @@ class TestAgentMemory:
         working = WorkingMemory()
 
         mock_llm = AsyncMock(side_effect=responses)
-        with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=mock_llm):
             await agent.ainvoke({
                 "messages": [{"role": "user", "content": "Say hi"}],
                 "next_action": None,
@@ -260,7 +260,7 @@ class TestAgentMemory:
         working.add_step("plan-0", "action-0", "result-0")
 
         mock_llm = AsyncMock(side_effect=responses)
-        with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=mock_llm):
             await agent.ainvoke({
                 "messages": [{"role": "user", "content": "Test"}],
                 "next_action": None,
@@ -297,7 +297,7 @@ class TestAgentMemory:
         ]
 
         mock_llm = AsyncMock(side_effect=responses)
-        with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=mock_llm):
             result = await agent.ainvoke({
                 "messages": [{"role": "user", "content": "Hello"}],
                 "next_action": None,

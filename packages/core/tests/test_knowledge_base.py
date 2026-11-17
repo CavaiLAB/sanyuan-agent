@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 
 import pytest
-from neuroagent.knowledge import (
+from sanyuan_agent.knowledge import (
     InMemoryKnowledgeBase,
     KnowledgeChunk,
     chunk_text,

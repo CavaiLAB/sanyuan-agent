@@ -1,6 +1,6 @@
 """Tests for working-memory compression (PRD §7.6) with an injected summarizer."""
 
-from neuroagent.memory.working import WorkingMemory
+from sanyuan_agent.memory.working import WorkingMemory
 
 
 def _fake_summarizer(text: str) -> str:

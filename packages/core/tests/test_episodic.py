@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
-from neuroagent.memory.episodic import EpisodicMemory
+from sanyuan_agent.memory.episodic import EpisodicMemory
 from sqlalchemy import JSON, Column, DateTime, Index, MetaData, String, Table, text
 from sqlalchemy.dialects.postgresql import UUID as _UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -233,8 +233,8 @@ class TestAgentIntegration:
     async def test_graph_saves_current_question_with_its_final_answer(
         self, monkeypatch: pytest.MonkeyPatch, ending: str
     ) -> None:
-        from neuroagent.agents.simple import build_simple_agent
-        from neuroagent.models import LLMProvider
+        from sanyuan_agent.agents.simple import build_simple_agent
+        from sanyuan_agent.models import LLMProvider
 
         def echo(text: str) -> str:
             """Return local test evidence."""
@@ -259,8 +259,8 @@ class TestAgentIntegration:
         if ending != "direct":
             replies.insert(0, response("I will inspect current evidence.", tool=True))
         llm = AsyncMock(side_effect=replies)
-        monkeypatch.setattr("neuroagent.agents.simple._call_llm", llm)
-        monkeypatch.setenv("NEUROAGENT_MEMORY_BACKEND", "none")
+        monkeypatch.setattr("sanyuan_agent.agents.simple._call_llm", llm)
+        monkeypatch.setenv("SANYUAN_AGENT_MEMORY_BACKEND", "none")
         memory = Mock(add_episode=AsyncMock())
         agent = build_simple_agent(
             LLMProvider(name="test", provider_kind="openai", default_model="test-model"),
@@ -291,7 +291,7 @@ class TestAgentIntegration:
             assert llm.await_args.args[2] == []  # the tool-free finalize node ran
 
     async def test_maybe_save_episode_no_op_without_memory(self) -> None:
-        from neuroagent.agents.simple import _maybe_save_episode
+        from sanyuan_agent.agents.simple import _maybe_save_episode
 
         state: dict[str, Any] = {"messages": []}
         # No episodic memory → should return immediately without error
@@ -305,7 +305,7 @@ class TestAgentIntegration:
         )
 
     async def test_maybe_save_episode_no_op_without_ids(self) -> None:
-        from neuroagent.agents.simple import _maybe_save_episode
+        from sanyuan_agent.agents.simple import _maybe_save_episode
 
         state: dict[str, Any] = {"messages": []}
         fake_episodic = EpisodicMemory(
@@ -324,7 +324,7 @@ class TestAgentIntegration:
         )
 
     async def test_extract_user_query(self) -> None:
-        from neuroagent.agents.simple import _extract_user_query
+        from sanyuan_agent.agents.simple import _extract_user_query
 
         messages = [
             {"role": "system", "content": "sys"},
@@ -334,7 +334,7 @@ class TestAgentIntegration:
         assert _extract_user_query(messages) == "hello world"
 
     async def test_extract_user_query_empty(self) -> None:
-        from neuroagent.agents.simple import _extract_user_query
+        from sanyuan_agent.agents.simple import _extract_user_query
 
         assert _extract_user_query([]) == ""
         assert _extract_user_query([{"role": "assistant", "content": "x"}]) == ""

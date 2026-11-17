@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from neuroagent.cli import app
-from neuroagent.local_desktop import (
+from sanyuan_agent.cli import app
+from sanyuan_agent.local_desktop import (
     PROFILE_READ_ONLY,
     PROFILE_WORKSPACE,
     CodexSandbox,
@@ -22,8 +22,8 @@ from neuroagent.local_desktop import (
     SandboxUnavailableError,
     build_sandbox_argv,
 )
-from neuroagent.local_desktop import codex_sandbox as sandbox_module
-from neuroagent.local_desktop.probe import run_probe
+from sanyuan_agent.local_desktop import codex_sandbox as sandbox_module
+from sanyuan_agent.local_desktop.probe import run_probe
 from typer.testing import CliRunner
 
 SandboxFactory = Callable[[], CodexSandbox]

@@ -15,12 +15,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from neuroagent.agents.simple import _to_tool_def
-from neuroagent.agents.tool_executor import tool_executor_node
-from neuroagent.mcp import McpToolDef, make_mcp_tools
-from neuroagent.tools.artifact_write import build_artifact_write_tool
-from neuroagent.tools.bash import build_bash_tool
-from neuroagent.tools.provider import (
+from sanyuan_agent.agents.simple import _to_tool_def
+from sanyuan_agent.agents.tool_executor import tool_executor_node
+from sanyuan_agent.mcp import McpToolDef, make_mcp_tools
+from sanyuan_agent.tools.artifact_write import build_artifact_write_tool
+from sanyuan_agent.tools.bash import build_bash_tool
+from sanyuan_agent.tools.provider import (
     ToolProvider,
     ToolSpec,
     register_provider,
@@ -28,9 +28,9 @@ from neuroagent.tools.provider import (
     spec_from_callable,
     specs_from_callables,
 )
-from neuroagent.tools.registry import ToolRegistry, callable_to_schema
-from neuroagent.tools.web_fetch import build_web_fetch_tool
-from neuroagent.tools.web_search import build_web_search_tool
+from sanyuan_agent.tools.registry import ToolRegistry, callable_to_schema
+from sanyuan_agent.tools.web_fetch import build_web_fetch_tool
+from sanyuan_agent.tools.web_search import build_web_search_tool
 
 
 def _echo_schema() -> dict[str, Any]:
@@ -209,7 +209,7 @@ class _FakeArtifactClient:
     async def create_artifact(
         self, tenant_id: str, content_bytes: bytes, content_type: str, filename: str
     ) -> Any:
-        from neuroagent.artifacts.client import ArtifactRef
+        from sanyuan_agent.artifacts.client import ArtifactRef
 
         return ArtifactRef(
             id="fake-id",

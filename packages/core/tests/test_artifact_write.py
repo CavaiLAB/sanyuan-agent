@@ -3,9 +3,9 @@
 from typing import Any
 
 import pytest
-from neuroagent.artifacts.client import ArtifactRef
-from neuroagent.tools.artifact_write import build_artifact_write_tool
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.artifacts.client import ArtifactRef
+from sanyuan_agent.tools.artifact_write import build_artifact_write_tool
+from sanyuan_agent.tools.registry import ToolRegistry
 
 
 class FakeClient:

@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from neuroagent.sandbox.local import LocalSandboxProvider
+from sanyuan_agent.sandbox.local import LocalSandboxProvider
 
 
 @pytest.mark.asyncio

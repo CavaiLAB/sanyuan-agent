@@ -14,10 +14,10 @@ from unittest.mock import AsyncMock
 
 import litellm
 import pytest
-from neuroagent.agents.simple import _call_llm
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.models import LLMProvider, LLMProviderRegistry
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.agents.simple import _call_llm
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.models import LLMProvider, LLMProviderRegistry
+from sanyuan_agent.tools.registry import ToolRegistry
 
 
 def _ok(model: str = "primary") -> Any:
@@ -124,7 +124,7 @@ class TestAgentSpecFallback:
             )
         )
         captured: dict[str, Any] = {}
-        import neuroagent.config.loader as loader_mod
+        import sanyuan_agent.config.loader as loader_mod
 
         real_build = loader_mod.build_simple_agent
 

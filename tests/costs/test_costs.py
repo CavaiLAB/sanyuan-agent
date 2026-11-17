@@ -8,12 +8,12 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from neuroagent.costs.callback import (
+from sanyuan_agent.costs.callback import (
     _infer_provider,
     _on_success,
     install_usage_callback,
 )
-from neuroagent.costs.tracker import (
+from sanyuan_agent.costs.tracker import (
     LLMCallUsage,
     UsageTracker,
 )
@@ -195,7 +195,7 @@ class TestCallback:
 
     def test_callback_no_tracker_is_noop(self) -> None:
         """If no tracker is installed, callback must not crash."""
-        from neuroagent.costs import callback as cb
+        from sanyuan_agent.costs import callback as cb
         old = cb._tracker
         cb._tracker = None
         try:

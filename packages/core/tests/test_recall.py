@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from neuroagent.memory.abc import IEpisodicStore
-from neuroagent.memory.recall import EpisodicRecall
+from sanyuan_agent.memory.abc import IEpisodicStore
+from sanyuan_agent.memory.recall import EpisodicRecall
 
 
 class FakeStore(IEpisodicStore):
@@ -165,7 +165,7 @@ class TestFormatPromptBlock:
 
 class TestAgentIntegration:
     async def test_maybe_inject_recall_with_recall(self) -> None:
-        from neuroagent.agents.simple import _maybe_inject_recall
+        from sanyuan_agent.agents.simple import _maybe_inject_recall
 
         store = FakeStore()
         await store.add_episode("t1", "c1", "python async tips", "use asyncio", {})
@@ -179,14 +179,14 @@ class TestAgentIntegration:
         assert "相关历史" in result[0]["content"]
 
     async def test_maybe_inject_recall_no_op_without_recall(self) -> None:
-        from neuroagent.agents.simple import _maybe_inject_recall
+        from sanyuan_agent.agents.simple import _maybe_inject_recall
 
         messages = [{"role": "user", "content": "hello"}]
         result = await _maybe_inject_recall(messages, None, "t1", "c1")
         assert result == messages
 
     async def test_maybe_inject_recall_no_op_without_tenant(self) -> None:
-        from neuroagent.agents.simple import _maybe_inject_recall
+        from sanyuan_agent.agents.simple import _maybe_inject_recall
 
         store = FakeStore()
         recall = EpisodicRecall(store=store)

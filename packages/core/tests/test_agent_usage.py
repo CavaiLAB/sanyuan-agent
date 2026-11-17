@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from neuroagent.agents.simple import _get_usage, _merge_usage
+from sanyuan_agent.agents.simple import _get_usage, _merge_usage
 
 
 class TestGetUsage:

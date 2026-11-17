@@ -17,11 +17,11 @@ from unittest.mock import AsyncMock
 import litellm
 import pytest
 from langchain_core.messages import ToolMessage
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.memory.context import _msg_tokens, trim_messages
-from neuroagent.models import LLMProvider, LLMProviderRegistry
-from neuroagent.tools.registry import ToolRegistry
 from pydantic import ValidationError
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.memory.context import _msg_tokens, trim_messages
+from sanyuan_agent.models import LLMProvider, LLMProviderRegistry
+from sanyuan_agent.tools.registry import ToolRegistry
 
 
 def _msg(role: str, content: str) -> dict[str, str]:

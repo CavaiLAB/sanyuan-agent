@@ -1,9 +1,9 @@
 """Tests for ToolRegistry and tool_executor_node."""
 
 import pytest
-from neuroagent.agents.errors import ToolExecutionError
-from neuroagent.agents.tool_executor import _last_assistant_tool_calls, tool_executor_node
-from neuroagent.tools.registry import ToolRegistry, callable_to_schema
+from sanyuan_agent.agents.errors import ToolExecutionError
+from sanyuan_agent.agents.tool_executor import _last_assistant_tool_calls, tool_executor_node
+from sanyuan_agent.tools.registry import ToolRegistry, callable_to_schema
 
 # -- helpers --
 

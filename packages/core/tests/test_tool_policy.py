@@ -15,12 +15,12 @@ from unittest.mock import AsyncMock
 
 import litellm
 import pytest
-from neuroagent.agents.tool_executor import tool_executor_node
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.models import LLMProvider, LLMProviderRegistry
-from neuroagent.security import PolicyRule, ToolPolicy
-from neuroagent.tools.registry import ToolRegistry, callable_to_schema
 from pydantic import ValidationError
+from sanyuan_agent.agents.tool_executor import tool_executor_node
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.models import LLMProvider, LLMProviderRegistry
+from sanyuan_agent.security import PolicyRule, ToolPolicy
+from sanyuan_agent.tools.registry import ToolRegistry, callable_to_schema
 
 
 class TestToolPolicyDecide:

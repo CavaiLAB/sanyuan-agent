@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from neuroagent.agents.simple import _to_tool_def
-from neuroagent.tools.registry import callable_to_schema
+from sanyuan_agent.agents.simple import _to_tool_def
+from sanyuan_agent.tools.registry import callable_to_schema
 
 
 def _props(fn: Any) -> dict[str, Any]:

@@ -46,7 +46,7 @@ def test_guard_quarantines_dependency_output_and_ambient_credentials() -> None:
 import json
 import os
 import sys
-from neuroagent.local_desktop.stdio_guard import run_guarded_desktop_process
+from sanyuan_agent.local_desktop.stdio_guard import run_guarded_desktop_process
 
 async def runner(_stdin, stdout, *, env):
     print("RAW_STDOUT sk-live-VERY-SECRET")
@@ -93,7 +93,7 @@ raise SystemExit(run_guarded_desktop_process(lambda: runner))
 def test_guard_sanitizes_unexpected_loader_failure() -> None:
     result = _run(
         r"""
-from neuroagent.local_desktop.stdio_guard import run_guarded_desktop_process
+from sanyuan_agent.local_desktop.stdio_guard import run_guarded_desktop_process
 
 def fail():
     print("INIT_STDOUT sk-live-VERY-SECRET")

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from neuroagent.skills import SkillRegistry, load_skills_dir, parse_skill
+from sanyuan_agent.skills import SkillRegistry, load_skills_dir, parse_skill
 
 
 class TestParseSkill:

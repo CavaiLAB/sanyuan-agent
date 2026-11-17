@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from neuroagent.tools.web_budget import WebRunBudget
+from sanyuan_agent.tools.web_budget import WebRunBudget
 
 
 async def test_resource_limits_are_independent_and_fail_closed() -> None:

@@ -4,18 +4,18 @@ import asyncio
 
 import pytest
 from langchain_core.messages import ToolMessage
-from neuroagent.agents.errors import (
+from sanyuan_agent.agents.errors import (
     ToolArgsValidationError,
     ToolCircuitBreakerError,
     ToolExecutionError,
 )
-from neuroagent.agents.tool_executor import (
+from sanyuan_agent.agents.tool_executor import (
     _recover_tool_call,
     _sanitize_tool_call,
     _validate_args,
     tool_executor_node,
 )
-from neuroagent.tools.registry import ToolRegistry, callable_to_schema
+from sanyuan_agent.tools.registry import ToolRegistry, callable_to_schema
 
 
 def _echo_tool(msg: str) -> str:

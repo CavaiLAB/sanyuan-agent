@@ -9,16 +9,16 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from neuroagent.tools.registry import ToolRegistry
-from neuroagent.tools.web_budget import WebRunBudget
-from neuroagent.tools.web_search import (
+from sanyuan_agent.tools.registry import ToolRegistry
+from sanyuan_agent.tools.web_budget import WebRunBudget
+from sanyuan_agent.tools.web_search import (
     ExaSearchBackend,
     SearchResult,
     SearchRouter,
     build_web_search_tool,
     normalize_search_url,
 )
-from neuroagent.tools.web_search_models import (
+from sanyuan_agent.tools.web_search_models import (
     SearchBackendError,
     SearchBackendResult,
     SearchItem,
@@ -71,7 +71,7 @@ class FakeExaClient:
 async def test_duckduckgo_legacy_uses_ddgs_successfully(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from neuroagent.tools import web_search as module
+    from sanyuan_agent.tools import web_search as module
 
     class FakeDDGS:
         def __enter__(self) -> FakeDDGS:

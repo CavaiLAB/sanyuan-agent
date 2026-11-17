@@ -17,17 +17,17 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.config.loader import _resolve_tools
-from neuroagent.models import LLMProvider, LLMProviderRegistry
-from neuroagent.tools import (
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.config.loader import _resolve_tools
+from sanyuan_agent.models import LLMProvider, LLMProviderRegistry
+from sanyuan_agent.tools import (
     LinkReaderToolProvider,
     build_link_reader_tool,
     build_web_fetch_tool,
 )
-from neuroagent.tools.provider import ToolProvider, register_provider
-from neuroagent.tools.registry import ToolRegistry
-from neuroagent.tools.web_reader_models import FetchDocument
+from sanyuan_agent.tools.provider import ToolProvider, register_provider
+from sanyuan_agent.tools.registry import ToolRegistry
+from sanyuan_agent.tools.web_reader_models import FetchDocument
 
 
 class _FakeFetch:
@@ -198,7 +198,7 @@ def _llm_registry() -> LLMProviderRegistry:
             name="higress",
             provider_kind="openai_compatible",
             api_base="http://higress.test/v1",
-            api_key_env="NEUROAGENT_LLM_API_KEY",
+            api_key_env="SANYUAN_AGENT_LLM_API_KEY",
             default_model="openai/deepseek-v4-flash",
         )
     )

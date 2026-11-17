@@ -6,15 +6,15 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from neuroagent.agents.simple import (
+from sanyuan_agent.agents.simple import (
     _extract_user_query,
     _maybe_inject_longterm,
     _maybe_inject_recall,
     _maybe_inject_skill,
     build_simple_agent,
 )
-from neuroagent.models import LLMProvider
-from neuroagent.skills import Skill, SkillRegistry
+from sanyuan_agent.models import LLMProvider
+from sanyuan_agent.skills import Skill, SkillRegistry
 
 
 def _conversation(content: Any) -> list[dict[str, Any]]:
@@ -120,7 +120,7 @@ async def test_plan_keeps_current_task_and_retrieval_aligned_when_history_is_tri
         choices=[SimpleNamespace(message=SimpleNamespace(content="Done", tool_calls=None))],
         usage=None,
     ))
-    monkeypatch.setattr("neuroagent.agents.simple._call_llm", llm)
+    monkeypatch.setattr("sanyuan_agent.agents.simple._call_llm", llm)
     agent = build_simple_agent(
         LLMProvider(name="test", provider_kind="openai", default_model="test-model"),
         [],

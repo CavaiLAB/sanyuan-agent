@@ -8,14 +8,14 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from neuroagent.memory.longterm.embedding import (
+from sanyuan_agent.memory.longterm.embedding import (
     LocalEmbeddingProvider,
     OpenAIEmbeddingProvider,
     create_embedding_provider,
 )
-from neuroagent.memory.longterm.store import LongtermMemoryStore, MemoryEntry, ScopeKind
-from neuroagent.memory.longterm.tools import build_memory_tools
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.memory.longterm.store import LongtermMemoryStore, MemoryEntry, ScopeKind
+from sanyuan_agent.memory.longterm.tools import build_memory_tools
+from sanyuan_agent.tools.registry import ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Fake embedding provider
@@ -494,7 +494,7 @@ def test_scope_kind_values() -> None:
 
 
 async def test_maybe_inject_longterm() -> None:
-    from neuroagent.agents.simple import _maybe_inject_longterm
+    from sanyuan_agent.agents.simple import _maybe_inject_longterm
 
     now = datetime.now(UTC)
     rows = [
@@ -527,7 +527,7 @@ async def test_maybe_inject_longterm() -> None:
 
 
 async def test_context_chain_is_bound_in_semantic_query(embedding: FakeEmbedding) -> None:
-    from neuroagent.memory.context import MemoryContext
+    from sanyuan_agent.memory.context import MemoryContext
 
     session = _make_session([])
     store = LongtermMemoryStore(_make_session_factory(session), embedding)
@@ -580,7 +580,7 @@ async def test_remember_this_binds_project_level(
 
 
 async def test_maybe_inject_longterm_none() -> None:
-    from neuroagent.agents.simple import _maybe_inject_longterm
+    from sanyuan_agent.agents.simple import _maybe_inject_longterm
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": "Hello"}]
     result = await _maybe_inject_longterm(messages, None, _TENANT_A, _USER_A)

@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from neuroagent.agents.simple import _maybe_inject_skill
-from neuroagent.skills import SkillRegistry, load_public_skills, parse_skill
+from sanyuan_agent.agents.simple import _maybe_inject_skill
+from sanyuan_agent.skills import SkillRegistry, load_public_skills, parse_skill
 
-SKILLS_DIR = Path(__file__).parent.parent.parent.parent / "packages" / "core" / "neuroagent" / "skills" / "public"
+SKILLS_DIR = Path(__file__).parent.parent.parent.parent / "packages" / "core" / "sanyuan_agent" / "skills" / "public"
 
 
 # ---------------------------------------------------------------------------

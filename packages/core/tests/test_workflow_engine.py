@@ -17,9 +17,9 @@ from unittest.mock import AsyncMock, patch
 
 import litellm
 import pytest
-from neuroagent.config import AgentSpec
-from neuroagent.models import LLMProvider, LLMProviderRegistry
-from neuroagent.orchestration import (
+from sanyuan_agent.config import AgentSpec
+from sanyuan_agent.models import LLMProvider, LLMProviderRegistry
+from sanyuan_agent.orchestration import (
     EVENT_AGENT_RUN_COMPLETED,
     EVENT_AGENT_RUN_DELTA,
     EVENT_AGENT_RUN_PROGRESS,
@@ -45,12 +45,12 @@ from neuroagent.orchestration import (
     WorkItemSpec,
     build_synthesis_brief,
 )
-from neuroagent.orchestration.workflow_engine import _web_fetch_evidence
-from neuroagent.sandbox.abc import SandboxResult, SandboxSession
-from neuroagent.tools.bash import BashToolProvider
-from neuroagent.tools.catalog import DEFAULT_TOOL_SETS
-from neuroagent.tools.file_ops import FileOpsToolProvider
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.orchestration.workflow_engine import _web_fetch_evidence
+from sanyuan_agent.sandbox.abc import SandboxResult, SandboxSession
+from sanyuan_agent.tools.bash import BashToolProvider
+from sanyuan_agent.tools.catalog import DEFAULT_TOOL_SETS
+from sanyuan_agent.tools.file_ops import FileOpsToolProvider
+from sanyuan_agent.tools.registry import ToolRegistry
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -992,7 +992,7 @@ class TestWorkerTools:
             _tool_call_response("tool_bash", '{"cmd": "echo sandboxed"}'),
             _final("task complete"),
         ]
-        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
             engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
             run, _events = await engine.run_to_completion(_tool_workflow())
 
@@ -1076,7 +1076,7 @@ class TestToolEventProjection:
             _tool_call_response("tool_bash", '{"cmd": "echo observe-me"}'),
             _final("task complete"),
         ]
-        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
             engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
             run, events = await engine.run_to_completion(_tool_workflow())
 
@@ -1125,7 +1125,7 @@ class TestToolEventProjection:
             _tool_call_response("tool_bash", '{"cmd": "echo observe-me"}'),
             _final("task complete"),
         ]
-        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
             engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
             run, events = await engine.run_to_completion(_tool_workflow())
 
@@ -1176,7 +1176,7 @@ class TestToolEventProjection:
             _tool_call_response("tool_bash", '{"cmd": "wc -l notes.md"}'),
             _final("merged"),
         ]
-        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
             engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
             run, events = await engine.run_to_completion(spec)
 
@@ -1243,7 +1243,7 @@ class TestToolEventProjection:
             _tool_call_response("no_such_tool", "{}"),
             _final("recovered"),
         ]
-        with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=AsyncMock(side_effect=responses)):
             engine = WorkflowEngine(runner=self._runner(llm_registry, binder))
             run, events = await engine.run_to_completion(_tool_workflow())
 

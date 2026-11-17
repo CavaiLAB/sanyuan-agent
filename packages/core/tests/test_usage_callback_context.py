@@ -12,10 +12,10 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from neuroagent.agents.simple import _call_llm
-from neuroagent.costs import callback as cb
-from neuroagent.costs.tracker import UsageTracker
-from neuroagent.models import LLMProvider
+from sanyuan_agent.agents.simple import _call_llm
+from sanyuan_agent.costs import callback as cb
+from sanyuan_agent.costs.tracker import UsageTracker
+from sanyuan_agent.models import LLMProvider
 
 
 def _response(prompt: int = 10, completion: int = 5) -> Any:

@@ -14,10 +14,10 @@ from unittest.mock import AsyncMock
 
 import litellm
 import pytest
-from neuroagent.config import AgentSpec
-from neuroagent.models import LLMProvider, LLMProviderRegistry
-from neuroagent.orchestration import make_subagent_tool, run_subagent, run_subagent_outcome
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.config import AgentSpec
+from sanyuan_agent.models import LLMProvider, LLMProviderRegistry
+from sanyuan_agent.orchestration import make_subagent_tool, run_subagent, run_subagent_outcome
+from sanyuan_agent.tools.registry import ToolRegistry
 
 
 @pytest.fixture()
@@ -174,7 +174,7 @@ class TestMakeSubagentTool:
     ) -> None:
         # The delegate tool must look like any other harness tool (named callable
         # with a typed signature) so an orchestrator agent can list it.
-        from neuroagent.agents.simple import _to_tool_def
+        from sanyuan_agent.agents.simple import _to_tool_def
 
         tool = make_subagent_tool(
             _spec("planner"),
@@ -286,7 +286,7 @@ class TestToolResultArtifactExtraction:
     """artifact_write-style results surface as artifacts on tool_result events."""
 
     def test_artifact_write_result_carries_artifacts(self) -> None:
-        from neuroagent.orchestration.subagent import _tool_events_from_update
+        from sanyuan_agent.orchestration.subagent import _tool_events_from_update
 
         content = (
             '{"artifact_id": "art-1", "download_url": "https://oss/x", '
@@ -311,7 +311,7 @@ class TestToolResultArtifactExtraction:
         ]
 
     def test_plain_tool_result_has_no_artifacts_key(self) -> None:
-        from neuroagent.orchestration.subagent import _tool_events_from_update
+        from sanyuan_agent.orchestration.subagent import _tool_events_from_update
 
         events = _tool_events_from_update(
             "tool_executor",

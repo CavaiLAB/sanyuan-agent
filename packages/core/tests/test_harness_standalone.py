@@ -1,12 +1,12 @@
-"""Standalone + boundary tests for NeuroAgent Harness."""
+"""Standalone + boundary tests for SanYuanAgent Harness."""
 
 import ast
 import subprocess
 import sys
 from pathlib import Path
 
-import neuroagent.cli as cli_module
-from neuroagent.cli import app
+import sanyuan_agent.cli as cli_module
+from sanyuan_agent.cli import app
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -21,13 +21,13 @@ def test_version_prints_version_and_exits_zero() -> None:
 def test_console_script_prints_version() -> None:
     """Run the real console script via subprocess."""
     result = subprocess.run(
-        ["neuroagent", "--version"],
+        ["sanyuan-agent", "--version"],
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 0
-    assert "neuroagent" in result.stdout
+    assert "sanyuan-agent" in result.stdout
     assert "0.1.0" in result.stdout
 
 
@@ -41,7 +41,7 @@ def test_desktop_run_command_propagates_protocol_exit(
 
 def test_no_imports_from_neuroagent_app() -> None:
     """Boundary check: harness must never import neuroagent_app."""
-    harness_dir = Path(__file__).parent.parent / "neuroagent"
+    harness_dir = Path(__file__).parent.parent / "sanyuan_agent"
     violations: list[str] = []
 
     for py_file in harness_dir.rglob("*.py"):
@@ -65,7 +65,7 @@ def test_memory_projection_public_api_imports_in_fresh_process() -> None:
     """The memory feature imports and renders from the harness wheel alone."""
     code = """
 from dataclasses import dataclass
-from neuroagent.memory import MemoryLevel, render_memory_markdown
+from sanyuan_agent.memory import MemoryLevel, render_memory_markdown
 
 @dataclass
 class Record:

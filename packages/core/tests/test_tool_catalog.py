@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from neuroagent.tools.catalog import DEFAULT_TOOL_SETS, builtin_providers
-from neuroagent.tools.computer_use import FakeComputerUseClient
+from sanyuan_agent.tools.catalog import DEFAULT_TOOL_SETS, builtin_providers
+from sanyuan_agent.tools.computer_use import FakeComputerUseClient
 
 
 class TestDefaultToolSets:

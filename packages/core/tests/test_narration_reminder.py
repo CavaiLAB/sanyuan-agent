@@ -13,9 +13,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from neuroagent.agents import build_simple_agent
-from neuroagent.agents.simple import _NARRATION_REMINDER, _inject_narration_reminder
-from neuroagent.models import LLMProvider
+from sanyuan_agent.agents import build_simple_agent
+from sanyuan_agent.agents.simple import _NARRATION_REMINDER, _inject_narration_reminder
+from sanyuan_agent.models import LLMProvider
 
 
 def test_inject_narration_reminder_appends_last() -> None:
@@ -50,7 +50,7 @@ async def test_plan_node_sends_reminder_as_last_message() -> None:
         captured["messages"] = messages
         return _resp("final answer, no tools")
 
-    with patch("neuroagent.agents.simple._call_llm", new=AsyncMock(side_effect=fake_call_llm)):
+    with patch("sanyuan_agent.agents.simple._call_llm", new=AsyncMock(side_effect=fake_call_llm)):
         await agent.ainvoke(
             {
                 "messages": [

@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import ToolMessage
-from neuroagent.agents import build_simple_agent
-from neuroagent.models import LLMProvider
+from sanyuan_agent.agents import build_simple_agent
+from sanyuan_agent.models import LLMProvider
 
 # -- helpers --
 
@@ -76,7 +76,7 @@ class TestSimpleAgent:
         ]
 
         mock_llm = AsyncMock(side_effect=responses)
-        with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=mock_llm):
             result = await agent.ainvoke({
                 "messages": [{"role": "user", "content": "Say hi"}],
                 "next_action": None,
@@ -112,7 +112,7 @@ class TestSimpleAgent:
             _MockChoice(_MockMessage(content="No tools needed")),
         ]))
 
-        with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=mock_llm):
             result = await agent.ainvoke({
                 "messages": [{"role": "user", "content": "Hello"}],
                 "next_action": None,
@@ -150,7 +150,7 @@ class TestSimpleAgent:
         ]
 
         mock_llm = AsyncMock(side_effect=responses)
-        with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=mock_llm):
             result = await agent.ainvoke({
                 "messages": [{"role": "user", "content": "Test async"}],
                 "next_action": None,
@@ -197,7 +197,7 @@ class TestSimpleAgent:
         ]
 
         mock_llm = AsyncMock(side_effect=responses)
-        with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=mock_llm):
             result = await agent.ainvoke({
                 "messages": [{"role": "user", "content": "Loop test"}],
                 "next_action": None,
@@ -235,7 +235,7 @@ class TestSimpleAgent:
         ]
 
         mock_llm = AsyncMock(side_effect=responses)
-        with patch("neuroagent.agents.simple._call_llm", new=mock_llm):
+        with patch("sanyuan_agent.agents.simple._call_llm", new=mock_llm):
             result = await agent.ainvoke({
                 "messages": [{"role": "user", "content": "Loop test"}],
                 "next_action": None,

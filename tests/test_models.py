@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from neuroagent.models import LLMProvider, LLMProviderRegistry, acompletion
+from sanyuan_agent.models import LLMProvider, LLMProviderRegistry, acompletion
 
 
 class TestLLMProviderRegistry:
@@ -75,7 +75,7 @@ class TestAcompletion:
         ))
 
         mock_response = AsyncMock()
-        with patch("neuroagent.models.registry.litellm.acompletion", new=mock_response):
+        with patch("sanyuan_agent.models.registry.litellm.acompletion", new=mock_response):
             with patch.dict("os.environ", {"TEST_KEY": "secret123"}):
                 await acompletion(
                     "test",
@@ -100,7 +100,7 @@ class TestAcompletion:
         ))
 
         mock_response = AsyncMock()
-        with patch("neuroagent.models.registry.litellm.acompletion", new=mock_response):
+        with patch("sanyuan_agent.models.registry.litellm.acompletion", new=mock_response):
             await acompletion(
                 "test",
                 messages=[],

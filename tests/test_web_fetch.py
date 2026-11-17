@@ -4,8 +4,8 @@ import httpx
 import pytest
 import respx
 from httpx import Response
-from neuroagent.tools.registry import ToolRegistry
-from neuroagent.tools.web_fetch import build_web_fetch_tool
+from sanyuan_agent.tools.registry import ToolRegistry
+from sanyuan_agent.tools.web_fetch import build_web_fetch_tool
 
 
 class TestWebFetchRegistry:

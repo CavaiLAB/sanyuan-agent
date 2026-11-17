@@ -7,7 +7,7 @@ Both remain advisory — ToolPolicy / RiskGate are still the runtime authority.
 
 from __future__ import annotations
 
-from neuroagent.tools.provider import (
+from sanyuan_agent.tools.provider import (
     ToolSpec,
     default_policy_from_specs,
     missing_required_secrets,

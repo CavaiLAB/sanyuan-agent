@@ -9,8 +9,8 @@ from typing import Any
 import httpx
 import pytest
 import respx
-from neuroagent.artifacts.client import ArtifactRef, StorageArtifactClient
-from neuroagent.artifacts.watcher import (
+from sanyuan_agent.artifacts.client import ArtifactRef, StorageArtifactClient
+from sanyuan_agent.artifacts.watcher import (
     ArtifactEvent,
     ArtifactWatcher,
     _get_extension,

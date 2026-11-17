@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from neuroagent.local_desktop import (
+from sanyuan_agent.local_desktop import (
     LocalDesktopProvider,
     SandboxNotEnforcedError,
     SandboxUnavailableError,
 )
-from neuroagent.local_desktop import provider as provider_module
+from sanyuan_agent.local_desktop import provider as provider_module
 
 
 class _FakeCodexSandbox:

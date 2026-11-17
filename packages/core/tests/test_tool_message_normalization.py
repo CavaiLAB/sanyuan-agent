@@ -23,9 +23,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import ToolMessage
-from neuroagent.agents import build_simple_agent
-from neuroagent.agents.simple import _to_openai_message
-from neuroagent.models import LLMProvider
+from sanyuan_agent.agents import build_simple_agent
+from sanyuan_agent.agents.simple import _to_openai_message
+from sanyuan_agent.models import LLMProvider
 
 # Fields litellm's GPT3Message rejects when they leak off a LangChain message.
 _LEAKY_KEYS = {"status", "artifact", "additional_kwargs", "response_metadata", "type", "id"}

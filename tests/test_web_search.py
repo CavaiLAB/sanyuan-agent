@@ -3,8 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from neuroagent.tools.registry import ToolRegistry
-from neuroagent.tools.web_search import SearchResult, build_web_search_tool
+from sanyuan_agent.tools.registry import ToolRegistry
+from sanyuan_agent.tools.web_search import SearchResult, build_web_search_tool
 
 
 class TestWebSearchRegistry:
@@ -37,7 +37,7 @@ class TestWebSearchDuckDuckGo:
         ]
 
         with patch(
-            "neuroagent.tools.web_search._ddg_search", autospec=True
+            "sanyuan_agent.tools.web_search._ddg_search", autospec=True
         ) as mock_ddg:
             mock_ddg.return_value = mock_results
             results = await tool("python asyncio", max_results=5)
@@ -53,7 +53,7 @@ class TestWebSearchDuckDuckGo:
         tool = build_web_search_tool(reg)
 
         with patch(
-            "neuroagent.tools.web_search._ddg_search", autospec=True
+            "sanyuan_agent.tools.web_search._ddg_search", autospec=True
         ) as mock_ddg:
             mock_ddg.return_value = []
             await tool("query", max_results=100)
@@ -65,7 +65,7 @@ class TestWebSearchDuckDuckGo:
         tool = build_web_search_tool(reg)
 
         with patch(
-            "neuroagent.tools.web_search._ddg_search", autospec=True
+            "sanyuan_agent.tools.web_search._ddg_search", autospec=True
         ) as mock_ddg:
             mock_ddg.return_value = []
             results = await tool("xyz12345nonsense")
@@ -99,7 +99,7 @@ class TestWebSearchDuckDuckGo:
 @pytest.mark.asyncio
 class TestWebSearchBrave:
     async def test_brave_happy_path(self, monkeypatch):
-        monkeypatch.setenv("NEUROAGENT_WEB_SEARCH_API_KEY", "fake-key")
+        monkeypatch.setenv("SANYUAN_AGENT_WEB_SEARCH_API_KEY", "fake-key")
         reg = ToolRegistry()
         tool = build_web_search_tool(reg)
 
@@ -127,7 +127,7 @@ class TestWebSearchBrave:
         assert results[0].snippet == "desc"
 
     async def test_brave_empty_response(self, monkeypatch):
-        monkeypatch.setenv("NEUROAGENT_WEB_SEARCH_API_KEY", "fake-key")
+        monkeypatch.setenv("SANYUAN_AGENT_WEB_SEARCH_API_KEY", "fake-key")
         reg = ToolRegistry()
         tool = build_web_search_tool(reg)
 

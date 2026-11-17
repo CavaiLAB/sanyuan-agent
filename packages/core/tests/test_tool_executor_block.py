@@ -12,8 +12,8 @@ import json
 from typing import Any
 
 import pytest
-from neuroagent.agents.tool_executor import tool_executor_node
-from neuroagent.tools.registry import ToolRegistry, callable_to_schema
+from sanyuan_agent.agents.tool_executor import tool_executor_node
+from sanyuan_agent.tools.registry import ToolRegistry, callable_to_schema
 
 
 def _state_with_call(name: str, args: dict[str, Any], tc_id: str = "tc-1") -> dict[str, Any]:

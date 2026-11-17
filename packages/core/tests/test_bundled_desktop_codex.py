@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from neuroagent.local_desktop import CodexSandbox
+from sanyuan_agent.local_desktop import CodexSandbox
 
 _BUNDLE_ENV = "ICLAW_BUNDLED_CODEX_TEST_BINARY"
 _PROBE_BUNDLE_ENV = "ICLAW_BUNDLED_PROBE_TEST_BINARY"

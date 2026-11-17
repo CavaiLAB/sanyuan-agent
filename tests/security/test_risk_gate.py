@@ -1,8 +1,8 @@
 """Tests for high-risk action classification + confirmation gate (PRD §9.1)."""
 
-from neuroagent.agents.tool_executor import tool_executor_node
-from neuroagent.security.risk import RiskGate, classify_tool_risk
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.agents.tool_executor import tool_executor_node
+from sanyuan_agent.security.risk import RiskGate, classify_tool_risk
+from sanyuan_agent.tools.registry import ToolRegistry
 
 
 class TestClassify:

@@ -10,7 +10,7 @@ import json
 import httpx
 import pytest
 import respx
-from neuroagent.artifacts.client import (
+from sanyuan_agent.artifacts.client import (
     ArtifactRef,
     StorageArtifactClient,
     _is_allowed_content_type,

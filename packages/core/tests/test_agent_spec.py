@@ -14,18 +14,18 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from neuroagent.config import (
+from pydantic import ValidationError
+from sanyuan_agent.config import (
     AgentSpec,
     LoadedAgent,
     load_agent_from_spec,
     load_agent_from_yaml,
 )
-from neuroagent.config.loader import _resolve_tools
-from neuroagent.models import LLMProvider, LLMProviderRegistry
-from neuroagent.skills.registry import Skill, SkillRegistry
-from neuroagent.tools.provider import ToolSpec, spec_from_callable
-from neuroagent.tools.registry import ToolRegistry
-from pydantic import ValidationError
+from sanyuan_agent.config.loader import _resolve_tools
+from sanyuan_agent.models import LLMProvider, LLMProviderRegistry
+from sanyuan_agent.skills.registry import Skill, SkillRegistry
+from sanyuan_agent.tools.provider import ToolSpec, spec_from_callable
+from sanyuan_agent.tools.registry import ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -69,7 +69,7 @@ def llm_registry() -> LLMProviderRegistry:
             name="higress",
             provider_kind="openai_compatible",
             api_base="http://higress.test/v1",
-            api_key_env="NEUROAGENT_LLM_API_KEY",
+            api_key_env="SANYUAN_AGENT_LLM_API_KEY",
             default_model="openai/deepseek-v4-flash",
         )
     )

@@ -10,11 +10,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from neuroagent.memory.context import MemoryLevel
-from neuroagent.memory.longterm.store import ScopeKind
-from neuroagent.tools.memory import MemoryToolProvider
-from neuroagent.tools.provider import register_provider
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.memory.context import MemoryLevel
+from sanyuan_agent.memory.longterm.store import ScopeKind
+from sanyuan_agent.tools.memory import MemoryToolProvider
+from sanyuan_agent.tools.provider import register_provider
+from sanyuan_agent.tools.registry import ToolRegistry
 
 
 @dataclass

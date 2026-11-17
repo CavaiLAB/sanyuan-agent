@@ -16,20 +16,20 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-from neuroagent.tools import (
+from sanyuan_agent.tools import (
     MultimodalArtifact,
     MultimodalClient,
     MultimodalToolProvider,
 )
-from neuroagent.tools.multimodal import (
+from sanyuan_agent.tools.multimodal import (
     ALL_TOOL_NAMES,
     SECRET_EDIT,
     SECRET_IMAGE,
     SECRET_TTS,
     SECRET_VIDEO,
 )
-from neuroagent.tools.provider import register_provider
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.tools.provider import register_provider
+from sanyuan_agent.tools.registry import ToolRegistry
 
 EXPECTED_NAMES = {"image_generate", "image_edit", "video_generate", "text_to_speech"}
 

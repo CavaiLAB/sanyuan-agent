@@ -5,15 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from neuroagent.security.prompt_injection.audit import (
+from sanyuan_agent.security.prompt_injection.audit import (
     InjectionAuditStore,
     make_audit_entry,
 )
-from neuroagent.security.prompt_injection.detector import (
+from sanyuan_agent.security.prompt_injection.detector import (
     InjectionDetector,
     InjectionMatch,
 )
-from neuroagent.security.prompt_injection.middleware import (
+from sanyuan_agent.security.prompt_injection.middleware import (
     InjectionDetectionMiddleware,
 )
 

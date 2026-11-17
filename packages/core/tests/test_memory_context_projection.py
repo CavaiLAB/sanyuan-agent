@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
-from neuroagent.memory import (
+from sanyuan_agent.memory import (
     MemoryContext,
     MemoryLevel,
     materialize_memory_markdown,

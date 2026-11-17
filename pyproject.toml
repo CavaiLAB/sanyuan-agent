@@ -1,7 +1,7 @@
 [project]
-name = "neuroagent-workspace"
+name = "sanyuan-agent-workspace"
 version = "0.1.0"
-description = "NeuroAgent Python monorepo (workspace root)"
+description = "SanYuanAgent Python monorepo (workspace root)"
 requires-python = ">=3.12"
 
 # 这是 uv workspace 的根配置，实际依赖在 packages/core/ 下
@@ -13,7 +13,7 @@ members = [
 ]
 
 [tool.uv.sources]
-neuroagent = { workspace = true }
+sanyuan-agent = { workspace = true }
 
 # ============================================
 # 开发工具配置
@@ -23,7 +23,7 @@ neuroagent = { workspace = true }
 target-version = "py312"
 line-length = 100
 extend-exclude = [
-    "packages/core/neuroagent/skills/builtin/**/*.md",
+    "packages/core/sanyuan_agent/skills/builtin/**/*.md",
 ]
 
 [tool.ruff.lint]

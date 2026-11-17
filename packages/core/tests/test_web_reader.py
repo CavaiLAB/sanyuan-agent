@@ -8,24 +8,24 @@ from time import monotonic
 from typing import Any
 
 import pytest
-from neuroagent.tools.web_budget import WebRunBudget
-from neuroagent.tools.web_extract import extract_http_document
-from neuroagent.tools.web_policy import URLClassifier, safe_log_url
-from neuroagent.tools.web_reader import (
+from sanyuan_agent.tools.web_budget import WebRunBudget
+from sanyuan_agent.tools.web_extract import extract_http_document
+from sanyuan_agent.tools.web_policy import URLClassifier, safe_log_url
+from sanyuan_agent.tools.web_reader import (
     BrowserReaderBackend,
     ExaContentsBackend,
     FirecrawlReaderBackend,
     HttpReaderBackend,
     ReaderRouter,
 )
-from neuroagent.tools.web_reader_models import (
+from sanyuan_agent.tools.web_reader_models import (
     FetchDocument,
     FetchRequest,
     HttpFetchRequest,
     HttpFetchResponse,
     wrap_untrusted_web_content,
 )
-from neuroagent.tools.web_source import DocumentSourceAdapter
+from sanyuan_agent.tools.web_source import DocumentSourceAdapter
 
 _PUBLIC_IP = "93.184.216.34"
 

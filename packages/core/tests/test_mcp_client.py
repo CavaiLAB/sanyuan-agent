@@ -16,7 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from neuroagent.mcp import (
+from sanyuan_agent.mcp import (
     McpClient,
     McpError,
     McpToolDef,
@@ -27,7 +27,7 @@ from neuroagent.mcp import (
     qualified_tool_name,
     register_mcp_tools,
 )
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.tools.registry import ToolRegistry
 
 Handler = Callable[[dict[str, Any]], dict[str, Any]]
 

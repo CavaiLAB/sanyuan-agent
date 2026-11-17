@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import json
 
-from neuroagent.tools.computer_use import (
+from sanyuan_agent.tools.computer_use import (
     ComputerUseResult,
     ComputerUseToolProvider,
     FakeComputerUseClient,
 )
-from neuroagent.tools.provider import register_provider
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.tools.provider import register_provider
+from sanyuan_agent.tools.registry import ToolRegistry
 
 
 class _RecordingClient:

@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from neuroagent.memory.abc import IEpisodicStore
-from neuroagent.memory.vector import VectorRecall
+from sanyuan_agent.memory.abc import IEpisodicStore
+from sanyuan_agent.memory.vector import VectorRecall
 
 
 class FakeStore(IEpisodicStore):
@@ -158,18 +158,18 @@ class TestVectorRecallEmbed:
         assert len(results) >= 0  # May be 0 or 1 depending on TF-IDF scoring
 
     async def test_env_switch_keyword(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """NEUROAGENT_MEMORY_BACKEND=keyword creates EpisodicRecall."""
-        from neuroagent.memory.recall import EpisodicRecall
+        """SANYUAN_AGENT_MEMORY_BACKEND=keyword creates EpisodicRecall."""
+        from sanyuan_agent.memory.recall import EpisodicRecall
 
-        monkeypatch.setenv("NEUROAGENT_MEMORY_BACKEND", "keyword")
+        monkeypatch.setenv("SANYUAN_AGENT_MEMORY_BACKEND", "keyword")
 
         store = FakeStore()
         recall = EpisodicRecall(store=store, strategy="keyword")
         assert recall._strategy == "keyword"
 
     async def test_env_switch_vector(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """NEUROAGENT_MEMORY_BACKEND=vector creates VectorRecall."""
-        monkeypatch.setenv("NEUROAGENT_MEMORY_BACKEND", "vector")
+        """SANYUAN_AGENT_MEMORY_BACKEND=vector creates VectorRecall."""
+        monkeypatch.setenv("SANYUAN_AGENT_MEMORY_BACKEND", "vector")
 
         store = FakeStore()
         recall = VectorRecall(store=store)

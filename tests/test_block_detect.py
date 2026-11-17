@@ -7,7 +7,7 @@ Kept in lockstep with apps/web/src/lib/toolOutcome.test.ts — same positive and
 
 from __future__ import annotations
 
-from neuroagent.tools.block_detect import detect_block
+from sanyuan_agent.tools.block_detect import detect_block
 
 
 class TestBlockedPositives:

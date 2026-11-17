@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from neuroagent.security.prompt_injection.detector import InjectionDetector
+from sanyuan_agent.security.prompt_injection.detector import InjectionDetector
 
 # -- Fixtures -------------------------------------------------------------
 

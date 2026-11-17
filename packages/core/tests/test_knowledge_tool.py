@@ -10,10 +10,10 @@ from __future__ import annotations
 import json
 
 import pytest
-from neuroagent.knowledge import InMemoryKnowledgeBase, ingest_document
-from neuroagent.tools.knowledge import KnowledgeBaseToolProvider
-from neuroagent.tools.provider import register_provider
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.knowledge import InMemoryKnowledgeBase, ingest_document
+from sanyuan_agent.tools.knowledge import KnowledgeBaseToolProvider
+from sanyuan_agent.tools.provider import register_provider
+from sanyuan_agent.tools.registry import ToolRegistry
 
 
 class _FakeEmbedder:

@@ -13,8 +13,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from neuroagent.gc import GCRunStats, GCScheduler, LongtermCollector
-from neuroagent.memory.longterm.store import LongtermMemoryStore
+from sanyuan_agent.gc import GCRunStats, GCScheduler, LongtermCollector
+from sanyuan_agent.memory.longterm.store import LongtermMemoryStore
 
 
 class FakeGovernedStore:

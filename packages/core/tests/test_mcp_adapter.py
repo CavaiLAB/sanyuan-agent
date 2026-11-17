@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from neuroagent.agents.simple import _to_tool_def
-from neuroagent.mcp import McpToolDef, make_mcp_tools, register_mcp_tools
-from neuroagent.tools.registry import ToolRegistry
+from sanyuan_agent.agents.simple import _to_tool_def
+from sanyuan_agent.mcp import McpToolDef, make_mcp_tools, register_mcp_tools
+from sanyuan_agent.tools.registry import ToolRegistry
 
 WEATHER = McpToolDef(
     name="get-weather",

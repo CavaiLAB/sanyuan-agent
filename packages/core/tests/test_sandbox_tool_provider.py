@@ -24,13 +24,13 @@ from langchain_core.utils.function_calling import (
     convert_to_openai_function,
     convert_to_openai_tool,
 )
-from neuroagent.config import AgentSpec, load_agent_from_spec
-from neuroagent.config.loader import _resolve_tools
-from neuroagent.models import LLMProvider, LLMProviderRegistry
-from neuroagent.tools import SandboxToolProvider, build_sandbox_tools
-from neuroagent.tools.provider import ToolProvider, register_provider
-from neuroagent.tools.registry import ToolRegistry
-from neuroagent.tools.sandbox_tool import SandboxClientProto, set_sandbox_context
+from sanyuan_agent.config import AgentSpec, load_agent_from_spec
+from sanyuan_agent.config.loader import _resolve_tools
+from sanyuan_agent.models import LLMProvider, LLMProviderRegistry
+from sanyuan_agent.tools import SandboxToolProvider, build_sandbox_tools
+from sanyuan_agent.tools.provider import ToolProvider, register_provider
+from sanyuan_agent.tools.registry import ToolRegistry
+from sanyuan_agent.tools.sandbox_tool import SandboxClientProto, set_sandbox_context
 
 EXPECTED = {"sandbox_exec_shell", "sandbox_exec_python"}
 
@@ -66,7 +66,7 @@ def _llm_registry() -> LLMProviderRegistry:
             name="higress",
             provider_kind="openai_compatible",
             api_base="http://higress.test/v1",
-            api_key_env="NEUROAGENT_LLM_API_KEY",
+            api_key_env="SANYUAN_AGENT_LLM_API_KEY",
             default_model="openai/deepseek-v4-flash",
         )
     )
@@ -149,7 +149,7 @@ class TestEquivalence:
         # reflection mistypes `timeout` as string and drops its default; the
         # provider must carry the BaseTool's schema on the callable so the load
         # path stays equivalent (timeout integer + default 30).
-        from neuroagent.agents.simple import _to_tool_def
+        from sanyuan_agent.agents.simple import _to_tool_def
 
         client = _FakeSandboxClient()
         by_name = {t.name: t for t in build_sandbox_tools(client)}

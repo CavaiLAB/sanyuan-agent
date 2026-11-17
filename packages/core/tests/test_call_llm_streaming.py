@@ -13,8 +13,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from neuroagent.agents.simple import _call_llm
-from neuroagent.models import LLMProvider
+from sanyuan_agent.agents.simple import _call_llm
+from sanyuan_agent.models import LLMProvider
 
 pytestmark = pytest.mark.asyncio
 

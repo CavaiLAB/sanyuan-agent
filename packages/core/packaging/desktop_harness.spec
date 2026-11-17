@@ -7,7 +7,7 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 spec_dir = Path(SPEC).resolve().parent
 harness_root = spec_dir.parent
-entry = harness_root / "neuroagent" / "local_desktop" / "bundled_entry.py"
+entry = harness_root / "sanyuan_agent" / "local_desktop" / "bundled_entry.py"
 
 datas = []
 binaries = []

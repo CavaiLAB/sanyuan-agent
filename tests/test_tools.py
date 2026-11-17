@@ -4,8 +4,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from neuroagent.sandbox.local import LocalSandboxProvider
-from neuroagent.tools import build_bash_tool, build_file_ops_tools
+from sanyuan_agent.sandbox.local import LocalSandboxProvider
+from sanyuan_agent.tools import build_bash_tool, build_file_ops_tools
 
 
 @pytest.mark.asyncio

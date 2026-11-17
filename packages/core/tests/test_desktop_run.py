@@ -7,8 +7,8 @@ from io import BytesIO, StringIO
 from typing import Any
 
 import pytest
-from neuroagent.local_desktop import desktop_run as desktop_run_module
-from neuroagent.local_desktop.desktop_run import run_desktop_stdio
+from sanyuan_agent.local_desktop import desktop_run as desktop_run_module
+from sanyuan_agent.local_desktop.desktop_run import run_desktop_stdio
 
 
 class _FinalAgent:
