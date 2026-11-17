@@ -4,7 +4,7 @@
 
 ## 1 来源
 
-代码在 iClaw 仓库的 Python Agent 引擎目录里。它是一个多包的 Python 工作区：
+代码在一个私有产品仓库的 Python Agent 引擎目录里。它是一个多包的 Python 工作区：
 
 | 部分 | 说明 |
 |---|---|

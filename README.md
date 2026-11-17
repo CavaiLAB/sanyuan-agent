@@ -4,7 +4,7 @@
 
 > **状态（2026-11-17）：核心已经带着历史迁入本仓库的 `packages/core`，并改了名；服务层与媒体适配层还在原仓库，随后再迁。下文讲架构与对接平台的部分仍是规划稿。**
 >
-> 代码来自 iClaw 仓库的 Python Agent 引擎。改名后发行名是 `sanyuan-agent`，导入名是 `sanyuan_agent`，命令行是 `sanyuan-agent`，环境变量前缀是 `SANYUAN_AGENT_`。迁移的做法与进度见[迁移与改名](docs/migration.md)。
+> 代码来自私有产品里的 Python Agent 引擎。改名后发行名是 `sanyuan-agent`，导入名是 `sanyuan_agent`，命令行是 `sanyuan-agent`，环境变量前缀是 `SANYUAN_AGENT_`。迁移的做法与进度见[迁移与改名](docs/migration.md)。
 
 ## 定位
 
