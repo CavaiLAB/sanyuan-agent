@@ -9,11 +9,14 @@ class TestHarnessBoundary:
 
     def test_harness_cannot_import_app(self):
         """Importing from sanyuan_agent must not bring in neuroagent_app."""
+        # Host-side packages: the source repo's service and media layers, plus their
+        # renamed counterparts (tentative).
         code = (
             "import sanyuan_agent; "
             "import sys; "
-            "assert 'neuroagent_app' not in sys.modules, "
-            "f'neuroagent_app leaked: {list(sys.modules.keys())}'; "
+            "hosts = ('neuroagent_app', 'neuroagent_media', 'sanyuan_agent_app', 'sanyuan_agent_media'); "
+            "leaked = [m for m in hosts if m in sys.modules]; "
+            "assert not leaked, f'host package leaked: {leaked}'; "
         )
         result = subprocess.run(
             [sys.executable, "-c", code],

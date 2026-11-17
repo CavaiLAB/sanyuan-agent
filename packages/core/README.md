@@ -29,7 +29,8 @@ print(result.final_response)
 或 CLI：
 
 ```bash
-uv add sanyuan-agent
+# 还没有发布到包索引，在仓库根目录按本地路径安装
+uv pip install ./packages/core
 sanyuan-agent --config my-config.yaml --task "..."
 ```
 
@@ -607,7 +608,7 @@ loaded = load_agent_from_spec(
 
 ## 开发
 
-本包作为 `sanyuan-agent` 仓库的 uv workspace 成员存在。开发细节见父仓 README。
+本包作为 `sanyuan-agent` 仓库的 uv workspace 成员存在。开发细节见仓库根目录的 README。
 
 ## 设计致谢
 

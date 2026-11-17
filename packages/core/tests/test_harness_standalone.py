@@ -39,8 +39,17 @@ def test_desktop_run_command_propagates_protocol_exit(
     assert result.exit_code == 7
 
 
+# Host-side packages: the source repo's service and media layers, plus their
+# renamed counterparts (tentative).
+HOST_PACKAGES = ("neuroagent_app", "neuroagent_media", "sanyuan_agent_app", "sanyuan_agent_media")
+
+
+def _is_host_package(name: str) -> bool:
+    return any(name == root or name.startswith(root + ".") for root in HOST_PACKAGES)
+
+
 def test_no_imports_from_neuroagent_app() -> None:
-    """Boundary check: harness must never import neuroagent_app."""
+    """Boundary check: harness must never import neuroagent_app (or any other host package)."""
     harness_dir = Path(__file__).parent.parent / "sanyuan_agent"
     violations: list[str] = []
 
@@ -50,12 +59,10 @@ def test_no_imports_from_neuroagent_app() -> None:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name == "neuroagent_app" or alias.name.startswith("neuroagent_app."):
+                    if _is_host_package(alias.name):
                         violations.append(f"{py_file}: import {alias.name}")
             elif isinstance(node, ast.ImportFrom):
-                if node.module == "neuroagent_app" or (
-                    node.module and node.module.startswith("neuroagent_app.")
-                ):
+                if node.module and _is_host_package(node.module):
                     violations.append(f"{py_file}: from {node.module} import ...")
 
     assert not violations, f"Boundary violation(s): {violations}"
