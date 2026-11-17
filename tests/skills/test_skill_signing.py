@@ -110,7 +110,7 @@ class TestBuiltinUnaffected:
     def test_builtin_skills_load_without_signature(self) -> None:
         builtin = (
             Path(__file__).resolve().parents[2]
-            / "packages/harness/neuroagent/skills/public/web-research/SKILL.md"
+            / "packages/core/neuroagent/skills/public/web-research/SKILL.md"
         )
         skill = parse_skill(builtin)
         # Built-in skills are trusted by provenance: active, no signature needed.
