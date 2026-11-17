@@ -58,8 +58,8 @@ python3 tools/migration/rename/check_residue.py
 
 1. **重跑导入。** 对原仓库更新后的提交跑 `import.sh <输出目录> <新的来源提交>`，再用 `verify_import.py` 核对。过滤是确定性的，已经导入的提交哈希不变，新提交接在后面。
 2. **确认是快进。** `git merge-base --is-ancestor <本仓库的 imported/iclaw-core> <新结果的 imported/iclaw-core>` 要成立；然后把新结果推到本仓库的 `imported/iclaw-core`，只许快进。
-3. **合并进来。** 从 `main` 切分支，`git merge --no-ff --no-commit imported/iclaw-core`。有冲突的文件，取导入一侧的整份内容（`git checkout --theirs -- <文件>`），交给下一步重新改名：改名脚本是幂等的，会把整份文件改回新名字。例外是改名之后做过人工改动的文件（`packages/core/README.md`、`packages/core/pyproject.toml`、`packages/core/tests/test_harness_standalone.py`、`tests/test_harness_boundary.py`），这几个要手工合。导入一侧新加在旧包目录下的文件，改名脚本会挪进新目录。
-4. **改名并检查。** 跑 `rename.py`、`check_residue.py` 和测试，作为一个合并提交提交，开 PR，用 merge commit 合并。
+3. **合并进来。** 从 `main` 切分支，`git merge --no-ff --no-commit imported/iclaw-core`。有冲突的文件，取导入一侧的整份内容（`git checkout --theirs -- <文件>`），交给下一步重新改名：改名脚本是幂等的，会把整份文件改回新名字。例外是改名之后做过人工改动的文件（`packages/core/README.md`、`packages/core/pyproject.toml`、`packages/core/tests/test_harness_standalone.py`、`tests/test_harness_boundary.py`，以及 `packages/core/sanyuan_agent/tools/` 下的 `computer_use.py`、`execute_skills.py`、`mobile_use.py`、`multimodal.py` 和 `packages/core/tests/test_multimodal_provider.py`），这几个要手工合。导入一侧新加在旧包目录下的文件，改名脚本会挪进新目录。
+4. **改名并检查。** 跑 `rename.py`、`check_residue.py` 和测试；同步进来的新内容照公开仓库的规矩过一遍（见根目录 `AGENTS.md`「要改文档」）。作为一个合并提交提交，开 PR，用 merge commit 合并。
 
 要注意的：
 
