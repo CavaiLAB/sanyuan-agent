@@ -207,11 +207,11 @@ loaded = load_agent_from_spec(
 
 ### 多模态工具 provider
 
-`MultimodalToolProvider(client)` 产出 4 个 VeADK 风格工具：`image_generate` /
+`MultimodalToolProvider(client)` 产出 4 个内置工具：`image_generate` /
 `image_edit` / `video_generate` / `text_to_speech`。两条边界：
 
-- **不接真实外部 API**：provider 只调用注入的 `MultimodalClient`（Protocol）；商业侧
-  后续注入真实 client（vendor + 凭证），测试注入 fake。harness 不 import
+- **不接真实外部 API**：provider 只调用注入的 `MultimodalClient`（Protocol）；宿主侧
+  注入真实 client（vendor + 凭证），测试注入 fake。harness 不 import
   `neuroagent_app`、不读 env。
 - **artifact/workspace 返回，绝不裸路径**：每个工具返回 `MultimodalArtifact` 形态
   （`artifact_id` / `filename` / `content_type` / `download_url` / `sha256` / 可选
@@ -230,109 +230,6 @@ registry = ToolRegistry()
 register_provider(registry, MultimodalToolProvider(my_multimodal_client))
 # registry 含 image_generate / image_edit / video_generate / text_to_speech
 ```
-
-#### app 注入 seam（PR4，默认关闭）
-
-harness 这一侧只提供**协议 + 工具壳**（`MultimodalToolProvider` + `MultimodalClient`
-Protocol），从不接真实供应商、从不读 secret。商业侧（`neuroagent_app`）的 **PR4** 增加
-注入缝把它接进网关：
-
-- `neuroagent_app.config.Settings` 增加多模态**开关 + 模型名**字段
-  （`multimodal_tools_enabled` / `multimodal_fake_client` / `multimodal_*_model`），
-  **默认全关**；字段只声明启用开关与模型**名**，**绝不**存放或日志 secret VALUE。
-- `neuroagent_app.multimodal.build_multimodal_provider(settings)` 是决策点：只有在
-  **显式启用且选中 fake client** 时才返回 provider（绑定 `FakeMultimodalClient`——
-  确定性 stub artifact、无外网、无 secret 读取）；启用但无 fake → 返回 `None`。
-- `assemble_agent_tools(..., multimodal_provider=...)` 接收候选 provider，把其 4 个工具
-  callable 展开进工具列表；**不传则默认工具列表不变**，生产路径默认不暴露外部生成工具。
-
-**PR4 只把 fake 缝接好**（Settings → factory → fake client → `assemble_agent_tools` → agent →
-SSE artifact 抽取），不引入任何付费 API 或外网调用。
-
-##### 凭证缝（PR12，仍非 live 接入）
-
-PR12 在 app 层补上**凭证/真实 client 注入缝**，但**不做任何 live vendor 调用**：
-
-- `neuroagent_app.multimodal.MultimodalSecretResolver`（Protocol）+ `EnvSecretResolver`：按
-  **声明的 env-var 名**解析凭证**值**，**绝不**记录值；空名/未设 → `None`。
-- `build_multimodal_provider(settings, *, resolver=None, client_factory=None)`：real 路径
-  （启用且非 fake）只有在**注入 `client_factory`** 时才构建 provider。凭证**值**只经
-  `resolver → client_factory → client` 流动，从不进 Settings/日志/结果/repr。
-- 沿用既有「更安全」工厂风格：无 factory、或 factory 解析不到凭证 → **贡献 0 工具**（返回
-  `None`、INFO 记原因但不含值），生产工具装配永不崩。default off + fake 路径不变。
-- **真实 vendor client 仍是 PR13+**；本 PR 只证明 seam（注入 resolver/factory → 4 工具，
-  无网络）。注：harness 各工具的 `required_secrets`（如 `MODEL_IMAGE_NAME`）实为**模型名** env
-  var（model-vs-secret 命名混淆）；凭证**值**的 env 名属真实 factory（PR13+）职责，本 seam 不写死。
-
-##### Volc/Ark client 骨架（PR13，仍非 live 接入）
-
-PR13 在 app 层加 `neuroagent_app.multimodal.ArkMultimodalClient`（实现 harness `MultimodalClient`）
-+ `make_ark_client_factory(...)`，但**不做任何 live/付费调用、不接生产默认线**：
-
-- **transport 注入**：所有 HTTP 走注入的 `ArkTransport`（`post_json` / `get_json` / `get_bytes`），
-  测试不触网；生产 router 默认不注入 factory，故此路径默认不跑。
-- **凭证安全**：api_key 由 `make_ark_client_factory` 经 `MultimodalSecretResolver` 解析声明 env 名
-  `MULTIMODAL_ARK_API_KEY`（缺失 → 工厂返回 `None`，real 模式降级 0 工具）；值仅进 Ark API 调用
-  （`post_json` / `get_json`）的 Authorization 头，**不**进 vendor 资产 `get_bytes`，**绝不**入
-  Settings/repr/日志/结果。
-- **artifact 纪律**：每个生成物（b64 内联或 URL 取回的 bytes）都经注入 `artifact_client.create_artifact`
-  落盘，返回 `MultimodalArtifact`（artifact 引用），**绝不**裸路径或只给外部 URL。
-- **接线方式**：`build_multimodal_provider(settings, resolver=..., client_factory=make_ark_client_factory(tenant_id=..., artifact_client=..., transport=...))`。
-- **落盘 content-type**：自 **PR14** 起 harness `StorageArtifactClient` allow-list 已包含 `video/`·`audio/`
-  （连同既有 `text/`·`image/`·`application/json`·`application/pdf`），故视频/音频生成物可落盘；
-  `application/octet-stream` 等任意 `application/*` 二进制仍拒绝。
-
-###### PR15 image/video shape 对齐（仍非 live、无生产默认线）
-
-PR15 把 image/video 请求响应形态对齐官方 Ark/ModelArk 文档（仅作 shape 参照，不发起 live 调用）：
-
-- **image**：`POST /api/v3/images/generations`（OpenAI 兼容；edit 走 image-to-image，body 带 `image`
-  引用）；响应可为内联 `b64_json`/`b64` 或 `url`，两者都落盘为 artifact。
-- **video（异步任务）**：`POST /api/v3/contents/generations/tasks`，body = `model` + `content` 数组
-  （一条 `text` 加可选 first/last frame 的 `image_url`，按 `role` 标 `first_frame`/`last_frame`，空则省略）；
-  随后轮询 `GET /api/v3/contents/generations/tasks/{id}` 至 `succeeded`，取输出 video URL 的 bytes（`get_bytes`
-  无 auth 头），落盘为 `video/mp4` artifact。轮询有上限（`video_poll_attempts`，单测不真实 sleep）；
-  `failed`/`cancelled`/`expired` 抛 `ValueError`，超时抛 `TimeoutError`。
-- **TTS 仍延后**：`text_to_speech` 维持通用 `audio/speech` 骨架；真实 Seed Speech / TTS API 与其独立 key
-  语义不在本 PR，留待后续。
-
-###### PR16 真实 httpx transport（仍非 live 测试、无生产默认线）
-
-PR16 在 app 层加 `HttpxArkTransport`（实现 `ArkTransport`），是**唯一真正发 socket 的 transport**：
-
-- **header 透传、无 auth 合成**：`post_json`/`get_json`/`get_bytes` 原样转发 client 给的 headers，自身
-  **不**追加任何 Authorization —— 故 `get_bytes` 用 `{}` 调用时资产取回无凭证。
-- **解析与错误**：API 调用解析 JSON 并要求对象体；资产取回返回原始 bytes。非 2xx / 网络错误 / 非 JSON / 非对象
-  JSON 均抛 `ArkTransportError`，其 message 仅含方法+状态+**去 query 的 URL**，**绝不**带请求 headers，
-  故 Authorization bearer / API key（及预签名 URL 签名）不外泄；`repr` 同样无密钥。
-- **构造不触网**：httpx 惰性连接；单测注入 `httpx.MockTransport` 包裹的 client，全程无网络。
-- **接线方式**：`make_ark_client_factory(..., transport=None)` 在**工厂被调用且凭证解析成功后**惰性 new 一个
-  `HttpxArkTransport`（注入 transport 时仍以注入者为准）；缺凭证仍是纯 no-op、不建 transport。默认 chat 路径
-  不注入 factory，真实 transport 仅在部署显式接线时才到达。
-
-###### PR17 capability 门控注册（真实 Ark 只注册 image+video）
-
-`text_to_speech` 走的是独立的 VeSpeech / Seed Speech 凭证边界，真实 Ark client 仅映射了 image/video。为避免把
-通用 `audio/speech` 骨架当作真实工具暴露：
-
-- `MultimodalToolProvider(client, *, supported_tools=None)` 新增可选 `supported_tools`：`None`（默认）仍产出全部
-  4 个工具（兼容/fake 路径不变）；给定子集时只产出 `ALL_TOOL_NAMES` 内的对应工具，未知名直接 `ValueError`（不静默丢工具）。
-- `build_multimodal_provider` 在真实 factory 建出 client 后读取可选属性 `supported_tool_names`：有则按其过滤注册，
-  无则保留 4 个（向后兼容；fake/dev client 无此属性故仍 4 个）。
-- `ArkMultimodalClient.supported_tool_names = ("image_generate","image_edit","video_generate")` —— 真实 Ark 工厂
-  因此只注册 3 个工具、**不注册 `text_to_speech`**。其方法/骨架保留，待真实 VeSpeech/Seed Speech 落地再注册。
-- **TTS 仍延后**：本 PR 不实现任何真实 TTS API，不做"真实 TTS 已接入"的声明。
-
-###### PR18 partial-client 友好（缩窄后只校验所需方法）
-
-工具名即 client 方法名（`image_generate` → `client.image_generate`）。给 `supported_tools` 后，provider 支持
-**部分实现的 client**：
-
-- 只校验**被请求**子集对应的方法存在（`callable(getattr(client, name, None))`）；缺失即 `ValueError` 点名该工具/方法
-  （fail-fast，不静默丢）。**未被请求**的方法一概不要求。
-- 默认（`supported_tools=None`）行为完全不变：fake/dev 全量 client 仍产出 4 工具，`MultimodalClient` 协议照常覆盖。
-- 由此未来的纯语音（VeSpeech/Seed Speech）client 可只实现 `text_to_speech`、无需 dummy image/video；image/video-only
-  client 也无需 dummy `text_to_speech`。
 
 ### link_reader（低风险 fetch+extract 聚合）
 
@@ -376,7 +273,7 @@ loaded = load_agent_from_spec(
 
 ### execute_skills（按名加载技能 prompt，不执行代码）
 
-`execute_skills` 是 VeADK `execute_skills` 的安全子集：按技能名经
+`execute_skills` 只做「执行技能」里安全的那一部分：按技能名经
 `SkillRegistry.load_prompt` 取回该技能的 prompt 文本，让 agent 把技能指令拉进上下文。
 三条边界：
 
