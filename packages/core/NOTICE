@@ -1,0 +1,42 @@
+Copyright 2026 NeuroAgent Contributors
+
+=================================================================
+附加声明
+=================================================================
+
+本 Harness 层（packages/core/）在 Apache License 2.0 下开源。
+服务层、媒体适配层等其他部分不属于本许可证范围，
+是独立的内部项目，许可证策略另行约定。
+
+本项目的 Sandbox 抽象、Skills SKILL.md 三级加载、Tool-Call Recovery、
+Provider Registry 等设计借鉴自 DeerFlow 2.0（bytedance/deer-flow，MIT License）。
+
+=================================================================
+DeerFlow 的版权与许可
+=================================================================
+
+来源：https://github.com/bytedance/deer-flow
+下面是它的 LICENSE 全文（取自提交 88e89921b9d91d6ecad19e83ad103e2f38b2e59b）：
+
+MIT License
+
+Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+Copyright (c) 2025-2026 DeerFlow Authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
