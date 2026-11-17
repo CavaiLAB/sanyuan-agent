@@ -1,0 +1,42 @@
+# 历史导入的路径规则：前身仓库布局（neuroagent-python，2026-05-11 以 git subtree 并入
+# iClaw 的 services/python/，GitHub 上已不存在）
+#
+# 只用于前身仓库的提交（并入时的 git-subtree-split 提交及其祖先，见 import.sh）。
+# 只取核心目录，加上与 paths-iclaw.txt 同一份工作区级测试清单。借鉴说明在前身仓库里的
+# 历史（docs/deerflow-reference.md）不带，它的历史从 iClaw 的 docs/services/python/ 开始。
+# 格式同 paths-iclaw.txt。
+
+# 一、核心目录
+packages/harness/
+
+# 二、工作区级测试（与 paths-iclaw.txt 同一份清单，前身仓库里位于根目录的 tests/）
+tests/artifacts/__init__.py
+tests/artifacts/test_watcher.py
+tests/costs/__init__.py
+tests/costs/test_costs.py
+tests/memory/longterm/__init__.py
+tests/memory/longterm/test_longterm.py
+tests/memory/test_working_compression.py
+tests/security/__init__.py
+tests/security/prompt_injection/__init__.py
+tests/security/prompt_injection/test_detector.py
+tests/security/prompt_injection/test_middleware.py
+tests/security/test_risk_gate.py
+tests/skills/public/test_builtin_skills.py
+tests/skills/test_skill_signing.py
+tests/test_block_detect.py
+tests/test_harness_boundary.py
+tests/test_local_sandbox.py
+tests/test_memory.py
+tests/test_models.py
+tests/test_sandbox_abstractions.py
+tests/test_simple_agent.py
+tests/test_skills.py
+tests/test_tool_executor.py
+tests/test_tool_recovery.py
+tests/test_tools.py
+tests/test_web_fetch.py
+tests/test_web_search.py
+
+# 改名
+packages/harness/==>packages/core/

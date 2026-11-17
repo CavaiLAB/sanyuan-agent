@@ -1,0 +1,48 @@
+# 历史导入的路径规则：iClaw 布局（来源仓库 idadawn/iclaw，私有）
+#
+# 用于 iClaw 主线上的提交，以及并入 iClaw 的其他历史里不属于前身仓库的提交。
+# 前身仓库（neuroagent-python）的提交用 paths-predecessor.txt。
+# 格式照 git filter-repo 的 --paths-from-file：先列要保留的路径（按原路径匹配），
+# 再列改名规则（旧前缀==>新前缀）；由 commit_callback.py 按提交所在的那一支选规则。
+# 三类路径以外的东西一概不带。
+
+# 一、核心目录
+services/python/packages/harness/
+
+# 二、工作区级测试：只引用核心、不引用服务层与媒体适配层的那些，
+#     以及它们所在目录的 __init__.py。按 import 扫描得出，扫描办法见 README。
+services/python/tests/artifacts/__init__.py
+services/python/tests/artifacts/test_watcher.py
+services/python/tests/costs/__init__.py
+services/python/tests/costs/test_costs.py
+services/python/tests/memory/longterm/__init__.py
+services/python/tests/memory/longterm/test_longterm.py
+services/python/tests/memory/test_working_compression.py
+services/python/tests/security/__init__.py
+services/python/tests/security/prompt_injection/__init__.py
+services/python/tests/security/prompt_injection/test_detector.py
+services/python/tests/security/prompt_injection/test_middleware.py
+services/python/tests/security/test_risk_gate.py
+services/python/tests/skills/public/test_builtin_skills.py
+services/python/tests/skills/test_skill_signing.py
+services/python/tests/test_block_detect.py
+services/python/tests/test_harness_boundary.py
+services/python/tests/test_local_sandbox.py
+services/python/tests/test_memory.py
+services/python/tests/test_models.py
+services/python/tests/test_sandbox_abstractions.py
+services/python/tests/test_simple_agent.py
+services/python/tests/test_skills.py
+services/python/tests/test_tool_executor.py
+services/python/tests/test_tool_recovery.py
+services/python/tests/test_tools.py
+services/python/tests/test_web_fetch.py
+services/python/tests/test_web_search.py
+
+# 三、借鉴与署名说明
+docs/services/python/deerflow-reference.md
+
+# 改名：按新仓库的布局放
+services/python/packages/harness/==>packages/core/
+services/python/tests/==>tests/
+docs/services/python/deerflow-reference.md==>packages/core/docs/deerflow-reference.md
