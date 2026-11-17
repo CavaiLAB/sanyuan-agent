@@ -15,7 +15,7 @@ from sanyuan_agent.artifacts.client import StorageArtifactClient
 
 logger = logging.getLogger(__name__)
 
-_meter = metrics.get_meter("sanyuan_agent.gc")
+_meter = metrics.get_meter("neuroagent.gc")
 
 _sandbox_soft_counter = _meter.create_counter(
     "neuroagent_sandbox_soft_released_total",

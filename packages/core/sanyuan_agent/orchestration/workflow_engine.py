@@ -58,7 +58,7 @@ from .workflow import (
     WorkItemRun,
 )
 
-_web_citation_counter = metrics.get_meter("sanyuan_agent.web").create_counter(
+_web_citation_counter = metrics.get_meter("neuroagent.web").create_counter(
     "neuroagent_web_citation_checks_total",
     description="Web research synthesis citation traceability checks",
     unit="1",

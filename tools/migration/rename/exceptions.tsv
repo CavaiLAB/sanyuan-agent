@@ -3,7 +3,8 @@
 # 登记了却一处都匹配不到的条目也算失败。格式见 exception_list.py 的说明。
 # 路径	写法	类别	原因	由谁定
 *	neuroagent_(app|media)\b	宿主侧包名	原仓库服务层、媒体适配层的包名。边界检查靠它认出宿主侧的包，说明文字里也要指名；改名后的对应名 sanyuan_agent_app、sanyuan_agent_media 已一并加进边界检查（暂定）	产品负责人，迁服务层、媒体适配层时定
-packages/core/sanyuan_agent/*	"neuroagent_[a-z_]+_total"	遥测标识	指标名。导出到监控系统后，已有的看板、告警和查询按名字取数，改了会断；meter 与 tracer 名是模块路径，已跟着导入名改了	产品负责人
+packages/core/sanyuan_agent/*	"neuroagent_[a-z_]+_total"	遥测标识	指标名。导出到监控系统后，已有的看板、告警和查询按名字取数，改了会断	产品负责人
+packages/core/sanyuan_agent/*	get_(meter|tracer)\("neuroagent(\.[a-z_]+)+"\)	遥测标识	OpenTelemetry 的 meter / tracer 作用域名，和指标名同一类：导出到监控系统后，已有的看板、告警和查询按名字取数，改了会断	产品负责人
 packages/core/sanyuan_agent/mcp/client.py	client_name: str = "neuroagent"	对外协议标识	MCP 握手时报给对端服务器的客户端名，和 HTTP 头同类	产品负责人
 packages/core/tests/test_mcp_client.py	\["name"\] == "neuroagent"	对外协议标识	断言上面那个客户端名	产品负责人
 packages/core/sanyuan_agent/tools/sandbox_tool.py	"neuroagent-default"	外部资源名	沙箱服务上登记的模板名，改了会找不到模板	产品负责人，随部署一起定

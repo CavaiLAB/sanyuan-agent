@@ -42,7 +42,7 @@ class LLMCallUsage:
 
 # OTel metric -----------------------------------------------------------------
 
-_meter = metrics.get_meter("sanyuan_agent.usage")
+_meter = metrics.get_meter("neuroagent.usage")
 _tokens_counter = _meter.create_counter(
     name="neuroagent_llm_tokens_total",
     description="Total LLM tokens consumed, labelled by tenant/model/provider",

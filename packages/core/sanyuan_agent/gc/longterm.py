@@ -9,7 +9,7 @@ from typing import Protocol
 
 from opentelemetry import metrics
 
-_meter = metrics.get_meter("sanyuan_agent.gc")
+_meter = metrics.get_meter("neuroagent.gc")
 
 _longterm_expired_counter = _meter.create_counter(
     "neuroagent_longterm_expired_total",

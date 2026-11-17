@@ -24,7 +24,7 @@ from sanyuan_agent.security.prompt_injection.detector import InjectionDetector
 
 logger = logging.getLogger(__name__)
 
-tracer = trace.get_tracer("sanyuan_agent.security.prompt_injection")
+tracer = trace.get_tracer("neuroagent.security.prompt_injection")
 
 _MIN_SEVERITY_FOR_SPAN = "medium"
 _SEV_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
