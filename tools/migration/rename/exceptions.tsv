@@ -14,6 +14,6 @@ packages/core/pyproject.toml	\{ name = "NeuroAgent Contributors" \}	版权人署
 packages/core/expected-layout.txt	(?i)neuro[-_ ]?agent	历史遗留	早先调整目录时留下的布局清单，内容是原仓库的旧布局，没有代码读它；留不留由负责人定	产品负责人
 tools/migration/*	(?i)neuro[-_ ]?agent	迁移工具	导入、改名与残留检查的脚本本身要写旧名	不需要定
 README.md	原名 \*\*NeuroAgent\*\*	说明原名	说明这个仓库的代码从哪里来	不需要定
-AGENTS.md	现在的名字是 NeuroAgent	说明原名	说明这个仓库的代码从哪里来	不需要定
+AGENTS.md	原名 NeuroAgent	说明原名	说明这个仓库的代码从哪里来	不需要定
 docs/architecture.md	原名 NeuroAgent	说明原名	说明这个仓库的代码从哪里来	不需要定
-docs/migration.md	原名 NeuroAgent	说明原名	说明这个仓库的代码从哪里来	不需要定
+docs/migration.md	(?i)neuro[-_ ]?agent	说明原名	迁移说明要写出原名和旧名到新名的对应	不需要定
