@@ -5,7 +5,8 @@
 - 品牌 NeuroAgent → SanYuanAgent；工作区根的项目名 neuroagent-workspace → sanyuan-agent-workspace。
 
 可以重复跑，第二次跑不会再改任何东西：
-1. 包目录 packages/core/neuroagent 用 git mv 改成 packages/core/sanyuan_agent（已经改过就跳过）。
+1. 包目录 packages/core/neuroagent 用 git mv 改成 packages/core/sanyuan_agent。已经改过的，只把旧目录下
+   还被跟踪的文件（比如同步时新带进来的）逐个挪进新目录。
 2. 对 SCOPE 里 git 跟踪的文本文件逐行替换：
    a. 先把 exceptions.tsv 里登记、适用于这个文件的写法遮住，替换完再放回，所以它们原样保留；
    b. 再按 CONTEXT_RULES 处理要看上下文的地方（发行名、命令名、仓库名、布局路径）；
@@ -93,6 +94,7 @@ def main() -> int:
     entries = load_exceptions()
 
     moved = bool(git("-C", str(root), "ls-files", PKG_NEW).strip())
+    stray = [p for p in git("-C", str(root), "ls-files", "-z", PKG_OLD).split("\0") if p]
     if not moved:
         if (root / PKG_NEW).exists():
             raise SystemExit(f"{PKG_NEW} 已经存在但没有被 git 跟踪，先清掉再跑")
@@ -101,14 +103,24 @@ def main() -> int:
         else:
             git("-C", str(root), "mv", PKG_OLD, PKG_NEW)
             print(f"git mv {PKG_OLD} {PKG_NEW}")
-            moved = True
+    elif stray:
+        for old in stray:
+            new = PKG_NEW + old[len(PKG_OLD):]
+            if (root / new).exists():
+                raise SystemExit(f"{old} 要挪到 {new}，但那里已经有文件，先手工合并")
+            if args.dry_run:
+                print(f"会 git mv {old} {new}")
+            else:
+                (root / new).parent.mkdir(parents=True, exist_ok=True)
+                git("-C", str(root), "mv", old, new)
+                print(f"git mv {old} {new}")
 
     changed: list[str] = []
     for path in git("-C", str(root), "ls-files", "-z").split("\0"):
         if not path or not path.startswith(SCOPE):
             continue
-        # 预演时包目录还没挪，规则与例外按挪过之后的路径找
-        logical = path if moved else path.replace(PKG_OLD + "/", PKG_NEW + "/", 1)
+        # 预演时旧目录里的文件还没挪，规则与例外按挪过之后的路径找
+        logical = PKG_NEW + path[len(PKG_OLD):] if path.startswith(PKG_OLD + "/") else path
         file = root / path
         data = file.read_bytes()
         if b"\0" in data[:8192]:
