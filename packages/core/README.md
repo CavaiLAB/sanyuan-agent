@@ -14,7 +14,7 @@ SanYuanAgent Agent 引擎核心，开源部分。
 
 ## 独立可运行性
 
-本包**不依赖任何 SanYuanAgent 商业版组件**。可以独立：
+本包**不依赖宿主侧的任何组件**。可以独立：
 
 ```python
 from sanyuan_agent import AgentBuilder, load_config
