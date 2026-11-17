@@ -12,7 +12,7 @@
    b. 再按 CONTEXT_RULES 处理要看上下文的地方（发行名、命令名、仓库名、布局路径）；
    c. 最后按 GENERIC_RULES 做通用替换。
    不在 SCOPE 里的不碰：tools/migration/（这些脚本本身要写旧名）、uv.lock（改完用 uv lock 重新生成）、
-   根目录的 README.md、AGENTS.md 和 docs/（迁移说明要写原名，人工改）。
+   根目录的 README.md、AGENTS.md 和 docs/（本仓库自己写的说明，人工改）。
 3. uv lock 重新生成锁文件（只有包名变化）。
 4. ruff 按仓库的 isort 规则重排 packages/ 与 tests/ 里的 import：改名后 sanyuan_agent 在字母序上
    排到了 pydantic 等包的后面，不重排 ruff 会报 I001。只动 import 的先后，不改别的。
