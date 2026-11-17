@@ -1,6 +1,6 @@
 """Multimodal tool provider (PR3): fake-client provider, artifact-shaped output.
 
-The provider yields four VeADK-style tools (image_generate / image_edit /
+The provider yields four builtin tools (image_generate / image_edit /
 video_generate / text_to_speech) over an *injected* client - no real external
 API. These tests pin:
 
@@ -340,7 +340,7 @@ class VideoOnlyClient:
 
 @dataclass
 class TtsOnlyClient:
-    """Implements only text_to_speech - the future VeSpeech / Seed Speech shape."""
+    """Implements only text_to_speech - the shape of a future speech-only client."""
 
     calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
 

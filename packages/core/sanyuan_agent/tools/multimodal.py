@@ -1,6 +1,6 @@
 """Multimodal tool provider (image / video / speech) over an injected client.
 
-VeADK-style builtin tools - ``image_generate`` / ``image_edit`` /
+Builtin tools - ``image_generate`` / ``image_edit`` /
 ``video_generate`` / ``text_to_speech`` - exposed as a :class:`ToolProvider`.
 
 Two boundaries are deliberate:
@@ -97,7 +97,7 @@ class MultimodalToolProvider:
     client** that implements only the subset's methods: when *supported_tools* is
     given, only those methods must exist on *client*; a missing one raises
     ``ValueError`` naming the tool/method, and methods for *unrequested* tools are
-    never required. This lets a future speech-only (VeSpeech / Seed Speech) client
+    never required. This lets a future speech-only client
     provide just ``text_to_speech`` without dummy image/video methods, and an
     image/video-only client omit ``text_to_speech``.
     """

@@ -1,6 +1,6 @@
 """Mobile-use tool provider (drive a mobile device/app) over an injected client.
 
-VeADK-style ``mobile_use`` exposed as a :class:`ToolProvider` shell. Two
+A ``mobile_use`` tool exposed as a :class:`ToolProvider` shell. Two
 boundaries mirror the multimodal provider:
 
 1. **No real device / app / desktop / agent-link / network in the harness.** The

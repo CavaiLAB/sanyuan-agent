@@ -1,6 +1,6 @@
 """Computer-use tool (drive a desktop computer via NL) over an injected client.
 
-VeADK-style ``computer_use`` exposed as a :class:`ToolProvider` shell, the
+A ``computer_use`` tool exposed as a :class:`ToolProvider` shell, the
 desktop counterpart of ``mobile_use``. Two boundaries mirror the mobile / multi-
 modal providers:
 

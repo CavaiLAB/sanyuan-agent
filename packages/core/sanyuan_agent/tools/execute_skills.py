@@ -1,6 +1,6 @@
 """execute_skills tool: load a registered skill's prompt by name (no code exec).
 
-VeADK-style ``execute_skills`` scoped to the safe subset: it returns a skill's
+An ``execute_skills`` tool scoped to the safe subset: it returns a skill's
 prompt text via :meth:`SkillRegistry.load_prompt` so the agent can pull a skill's
 instructions into context. Deliberate boundaries:
 
