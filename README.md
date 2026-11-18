@@ -24,7 +24,7 @@
 
 它是引擎，不是产品。它不保存用户、租户、权限这些业务主数据，也不做界面。接入平台之后：
 
-- 身份、权限、能力目录、审计由 [Kun](https://github.com/CavaiLAB/kun) 提供；Agent 之间的协同与人审提议也由 Kun 承担。见[接入平台：与 Kun 的交互](docs/platform.md)。
+- 身份、权限、能力目录、审计由 [Kun](https://github.com/CavaiLAB/kun) 提供；Agent 之间的协同与人审提议也由 Kun 承担。人审的规则已定：发给 Agent 的内容、Agent 发出去的内容都要由人审核，起步出站、入站两道都必审。见[接入平台：与 Kun 的交互](docs/platform.md)第 8 节。
 - 模型服务由 Kun 提供（已定）。设备本地可能还有小模型（已定），两边怎么一起用见[与模型服务的交互](docs/models.md)。
 - 界面由 [Qian](https://github.com/CavaiLAB/qian) 提供。
 
@@ -105,4 +105,4 @@
 - [记忆的模型](docs/memory.md)：记忆的现状，以及提议：每条记忆带范围、时效、内容、来源四个属性，记忆分原始记录、笔记、整理后的页面、常驻上下文四级。
 - [核心的差距与提议](docs/core-gaps.md)：对照成熟的智能体框架，核心还缺哪些能力，提议怎么补、按什么先后补。
 - [迁移与改名](docs/migration.md)：哪些代码迁过来，名字怎么改，迁入时要对齐什么。
-- [平台总览](https://github.com/CavaiLAB/jiangxin)：理念、总体架构、插件模型、Agent 协同、路线。
+- [平台总览](https://github.com/CavaiLAB/jiangxin)：理念、角色与产品形态、总体架构、插件模型、应用互通、历史系统接入、Agent 协同、路线、平台级裁定。
