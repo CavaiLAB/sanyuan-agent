@@ -99,6 +99,8 @@
 
 第 1 节说的「技能」对应这里的「做法」。在本仓库里「技能」专指 `SKILL.md` 形式的那种文件，所以记忆这一侧换了一个词。
 
+记忆之外，组件里新增了一种「知识库」内容（已定，平台总览的 [2026-11-19 平台级裁定](https://github.com/CavaiLAB/jiangxin/blob/main/docs/decisions/2026-11-19-platform.md) P30）：一批资料连同它的整理方式。它的格式、由谁存放与检索还没有定，提议见平台总览的[一切皆插件](https://github.com/CavaiLAB/jiangxin/blob/main/docs/03-plugin-model.md)第 3、9 节；本文不涉及。
+
 ### 3.4 来源
 
 | 来源 | 含义 |
