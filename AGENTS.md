@@ -1,12 +1,12 @@
 # AGENTS.md：给编码代理的入口说明
 
-这个仓库是 **SanYuanAgent** 的家：匠心智能体平台的智能体引擎（Python）。引擎的核心在 `packages/core`，2026-11-17 带着历史从私有产品仓库的 Python Agent 引擎迁入，迁入时改了名。服务层与媒体适配层还在原仓库，随后再迁。
+这个仓库是 **SanYuanAgent** 的家：匠心智能体平台的智能体引擎（Python）。引擎的核心在 `packages/core`，2026-11-17 带着历史从私有产品仓库的 Python Agent 引擎迁入。服务层与媒体适配层还在原仓库，随后再迁。
 
 ## 要改代码
 
 - 核心在 `packages/core/`：包目录 `sanyuan_agent/`、核心自带的测试 `tests/`、核心的说明 [`packages/core/README.md`](packages/core/README.md) 与 [`packages/core/AGENTS.md`](packages/core/AGENTS.md)。根目录的 `tests/` 是工作区级的测试，也只测核心。
 - 名字：发行名 `sanyuan-agent`，导入名 `sanyuan_agent`，命令行 `sanyuan-agent`，环境变量前缀 `SANYUAN_AGENT_`。仓库里剩下的旧名字都登记在 `tools/migration/rename/exceptions.tsv`，每处写了为什么不改；新加没登记的旧名字，残留检查会失败。
-- 核心不得引用服务层与媒体适配层的包。原来的名字 `neuroagent_app`、`neuroagent_media`，以及改名后的对应名 `sanyuan_agent_app`、`sanyuan_agent_media`（暂定），都在 CI 的静态扫描和边界测试里查。核心要能单独安装、命令行能起来。
+- 核心不得引用服务层与媒体适配层的包。CI 的静态扫描和边界测试既查它们现在的包名 `neuroagent_app`、`neuroagent_media`，也查迁入之后暂定的包名 `sanyuan_agent_app`、`sanyuan_agent_media`。核心要能单独安装、命令行能起来。
 - 核心的新依赖要和 Apache-2.0 兼容：MIT、BSD、Apache-2.0、ISC 可以，GPL 类的不行。
 - 借鉴开源项目的地方保留来源与许可声明，规则见 [`packages/core/docs/deerflow-reference.md`](packages/core/docs/deerflow-reference.md)；版权与上游许可在 [`packages/core/NOTICE`](packages/core/NOTICE)。
 
@@ -29,7 +29,7 @@ python3 tools/migration/rename/check_residue.py
 
 ## 要改文档
 
-1. 先读 [README.md](README.md) 与平台总览仓库的[名称对照](https://github.com/CavaiLAB/jiangxin/blob/main/docs/glossary.md)。
+1. 先读 [README.md](README.md) 与平台总览仓库的[术语表](https://github.com/CavaiLAB/jiangxin/blob/main/docs/glossary.md)。
 2. 文档用中文，不写参考平台和对标项目的名字。例外：许可与署名里对所借鉴开源项目的指名（`packages/core/NOTICE`、借鉴说明、代码里的来源与许可注释）照常保留，不要当成违规清掉。
 3. 分清「已定」「提议」「待定」。发行名、核心的许可（Apache-2.0）、仓库公开已定；服务层与媒体适配层的名字和许可仍待定。
 4. 说现状的时候写清是「已有」还是「规划」。核心的代码就在本仓库，可以对着代码写。原仓库是私有的：它的其余部分只写框架层面的内容，不写内部实现细节、文件路径和安全相关的细节；不放产品清单与建设状态，对它只写可以承接的能力类别，不写功能盘点与差距。安全组件只写它是什么，不写「一定会拦住」这类行为保证，除非对着代码核对过它在那条运行路径上确实启用。
