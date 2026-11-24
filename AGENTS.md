@@ -1,6 +1,6 @@
 # AGENTS.md：给编码代理的入口说明
 
-这个仓库是 **SanYuanAgent** 的家：匠心智能体平台的智能体引擎（Python）。引擎的核心在 `packages/core`，2026-11-17 带着历史从私有产品仓库的 Python Agent 引擎迁入。服务层与媒体适配层还在原仓库，随后再迁。
+这个仓库是 **SanYuanAgent** 的家：匠心工业智能体平台的智能体引擎（Python）。引擎的核心在 `packages/core`，2026-11-17 带着历史从私有产品仓库的 Python Agent 引擎迁入。服务层与媒体适配层还在原仓库，随后再迁。
 
 ## 要改代码
 

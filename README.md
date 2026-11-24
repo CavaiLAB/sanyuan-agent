@@ -1,6 +1,6 @@
 # SanYuanAgent
 
-[匠心智能体平台](https://github.com/CavaiLAB/jiangxin)的智能体引擎，一个独立运行的 SDK。Python 3.12：推理循环、工具、技能、记忆、沙箱、模型路由、多 Agent 编排。
+[匠心工业智能体平台](https://github.com/CavaiLAB/jiangxin)的智能体引擎，一个独立运行的 SDK。Python 3.12：推理循环、工具、技能、记忆、沙箱、模型路由、多 Agent 编排。
 
 > **状态（2026-11-17）：核心已经带着历史迁入本仓库的 `packages/core`；服务层与媒体适配层还在原仓库，随后再迁。下文讲架构与对接平台的部分仍是规划稿。**
 >
