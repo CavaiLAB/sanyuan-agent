@@ -1,6 +1,6 @@
 # SanYuanAgent
 
-> **本仓库保留，暂不维护（2026-11-26）。** 匠心工业智能体平台的 Agent 运行时用 DSH。这里的代码和文档停在 2026-11-25 的状态，不再跟着平台更新；与平台现行的裁定有出入时，以平台总览仓库的[平台级裁定](https://github.com/CavaiLAB/jiangxin/blob/main/docs/decisions/2026-11-26-platform.md)为准。
+> **本仓库保留，暂不维护（2026-11-26）。** 匠心工业智能体平台的 Agent 运行时用 DSH。这里的代码和文档停在 2026-11-25 的状态，不再跟着平台更新；与平台现行的写法有出入时，以[平台总览仓库](https://github.com/CavaiLAB/jiangxin)的文档为准。
 
 [匠心工业智能体平台](https://github.com/CavaiLAB/jiangxin)的智能体引擎，一个独立运行的 SDK。Python 3.12：推理循环、工具、技能、记忆、沙箱、模型路由、多 Agent 编排。
 
@@ -18,7 +18,7 @@ SanYuanAgent 是工站、产线、工厂三级智能体的大脑，要能提供�
 | 产线 | 协同智能体 | 以统一入口调用排程、质检等专业应用 |
 | 工厂 | 超级智能体 | 把任务分派给产线、机器人等智能体，协调资源冲突，按执行结果调整方案 |
 
-引擎在每一级具体承担到哪一层是提议，三级各怎么打包与部署是规划，见[框架架构](docs/architecture.md)第 13 节与平台总览的[三种形态](https://github.com/CavaiLAB/jiangxin/blob/main/docs/08-industrial-forms.md)。
+引擎在每一级具体承担到哪一层是提议，三级各怎么打包与部署是规划，见[框架架构](docs/architecture.md)第 13 节与平台总览的[工业智能制造](https://github.com/CavaiLAB/jiangxin/blob/main/docs/02-industrial-forms.md)。
 
 它是一个独立运行的 SDK（已定，2026-11-17）：每个端都要用到它，包括机器人这类边缘设备，装上就能用。目标是不接平台时它自己能完整运行；现在离这个目标还差什么，见[独立运行的 SDK](docs/sdk.md)。
 
